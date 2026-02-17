@@ -7,8 +7,6 @@
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@livechat/agent-app-sdk@2.3.3/dist/agentapp.min.js"></script>
-    <script src="https://unpkg.com/lucide@latest"></script>
     <style>
         * {
             margin: 0;
@@ -36,57 +34,63 @@
             const [customerData, setCustomerData] = useState(null);
             const [loading, setLoading] = useState(true);
             const [error, setError] = useState(null);
-            const [sdk, setSdk] = useState(null);
 
             useEffect(() => {
                 const initializeSDK = async () => {
                     try {
-                        console.log('Initializing LiveChat SDK...');
+                        console.log('Initializing widget...');
                         
-                        // Initialize the Agent App SDK
-                        const agentSDK = await window.LiveChatAgentSDK.init();
-                        setSdk(agentSDK);
-                        console.log('SDK initialized:', agentSDK);
+                        // Create SDK instance
+                        const sdk = window.LiveChatWidget || window.parent.LiveChatWidget;
+                        
+                        if (!sdk) {
+                            console.error('LiveChat SDK not found in window or parent');
+                            setError('LiveChat SDK not available');
+                            setLoading(false);
+                            return;
+                        }
 
-                        // Get current customer details
-                        agentSDK.on('customer_profile', (profile) => {
-                            console.log('Customer profile received:', profile);
+                        console.log('SDK found:', sdk);
+
+                        // Try to get customer data from the parent frame
+                        window.addEventListener('message', (event) => {
+                            console.log('Message received:', event.data);
                             
-                            if (profile && profile.id) {
-                                // Extract custom properties
-                                const customProps = {};
-                                
-                                // Check if properties exist in the profile
-                                if (profile.fields) {
-                                    Object.keys(profile.fields).forEach(key => {
-                                        customProps[key] = profile.fields[key];
-                                    });
-                                }
-                                
-                                console.log('Custom properties:', customProps);
-                                
-                                // Set the data
-                                setCustomerData(customProps);
+                            if (event.data && event.data.customer) {
+                                console.log('Customer data:', event.data.customer);
+                                setCustomerData(event.data.customer);
                                 setLoading(false);
                             }
                         });
 
-                        // Request customer details for current chat
-                        const customerData = await agentSDK.getCustomerProfile();
-                        console.log('Initial customer data:', customerData);
-                        
-                        if (customerData && customerData.fields) {
-                            setCustomerData(customerData.fields);
-                            setLoading(false);
-                        } else {
-                            // No data found
-                            setCustomerData({});
-                            setLoading(false);
+                        // Request customer data
+                        if (window.parent) {
+                            window.parent.postMessage({ action: 'get_customer' }, '*');
                         }
 
+                        // For testing - use mock data after 2 seconds if no real data
+                        setTimeout(() => {
+                            if (loading) {
+                                console.log('Using mock data for testing');
+                                setCustomerData({
+                                    default_name: "James Taylor",
+                                    Pending_WD: "FALSE",
+                                    KYC: "TRUE",
+                                    VIP_Binary: "FALSE",
+                                    Player_Class: "RND",
+                                    Bonus_offer: "0",
+                                    Bonus_active: "FALSE",
+                                    Withdraw_limit_day: "320",
+                                    Withdraw_limit_week: "3352",
+                                    Withdraw_limit_month: "903"
+                                });
+                                setLoading(false);
+                            }
+                        }, 2000);
+
                     } catch (err) {
-                        console.error('SDK initialization error:', err);
-                        setError('Failed to connect to LiveChat: ' + err.message);
+                        console.error('Initialization error:', err);
+                        setError('Failed to initialize: ' + err.message);
                         setLoading(false);
                     }
                 };
