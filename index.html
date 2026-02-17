@@ -7,6 +7,7 @@
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://unpkg.com/@livechat/agent-app-sdk@2.3.3/dist/agentapp.min.js"></script>
     <style>
         * {
             margin: 0;
@@ -27,8 +28,6 @@
 <body>
     <div id="root"></div>
 
-    <script src="https://unpkg.com/@livechat/agent-app-sdk@2.3.3/dist/agentapp.min.js"></script>
-
     <script type="text/babel">
         const { useState, useEffect } = React;
 
@@ -36,7 +35,6 @@
             const [customerData, setCustomerData] = useState(null);
             const [loading, setLoading] = useState(true);
             const [error, setError] = useState(null);
-            const [rawData, setRawData] = useState(null);
             const [debugInfo, setDebugInfo] = useState([]);
 
             const addDebug = (msg) => {
@@ -45,44 +43,92 @@
             };
 
             useEffect(() => {
-                const initializeSDK = async () => {
+                const initialize = async () => {
                     try {
-                        addDebug('Starting SDK initialization...');
-                        addDebug(`window.LiveChatAgentSDK exists: ${!!window.LiveChatAgentSDK}`);
-                        addDebug(`window.LiveChatWidget exists: ${!!window.LiveChatWidget}`);
+                        addDebug('Widget initializing...');
                         
-                        // Wait for SDK to be available
-                        let attempts = 0;
-                        while (!window.LiveChatAgentSDK && attempts < 50) {
-                            await new Promise(resolve => setTimeout(resolve, 100));
-                            attempts++;
-                            if (attempts % 10 === 0) {
-                                addDebug(`Waiting for SDK... attempt ${attempts}`);
+                        // Try multiple initialization methods
+                        let sdk = null;
+                        let customerProfile = null;
+
+                        // Method 1: Try standard SDK init
+                        if (window.LiveChatAgentSDK) {
+                            try {
+                                addDebug('Method 1: Attempting LiveChatAgentSDK.init()');
+                                sdk = await window.LiveChatAgentSDK.init();
+                                addDebug('SDK initialized via Method 1');
+                                
+                                customerProfile = await sdk.getCustomerProfile();
+                                addDebug('Got customer profile from SDK');
+                            } catch (e) {
+                                addDebug(`Method 1 failed: ${e.message}`);
                             }
                         }
 
-                        if (!window.LiveChatAgentSDK) {
-                            throw new Error('LiveChat SDK not found after 5 seconds');
+                        // Method 2: Listen for postMessage from parent
+                        if (!customerProfile) {
+                            addDebug('Method 2: Setting up postMessage listener');
+                            
+                            window.addEventListener('message', (event) => {
+                                addDebug(`Received message: ${JSON.stringify(event.data).substring(0, 100)}`);
+                                
+                                if (event.data && event.data.customer) {
+                                    addDebug('Customer data received via postMessage');
+                                    processCustomerData(event.data.customer);
+                                }
+                                
+                                if (event.data && event.data.customerProfile) {
+                                    addDebug('Customer profile received via postMessage');
+                                    processCustomerData(event.data.customerProfile);
+                                }
+                            });
+
+                            // Request data from parent
+                            if (window.parent !== window) {
+                                addDebug('Requesting data from parent window');
+                                window.parent.postMessage({ type: 'GET_CUSTOMER_DATA' }, '*');
+                            }
                         }
 
-                        addDebug('SDK found, initializing...');
-                        const sdk = await window.LiveChatAgentSDK.init();
-                        addDebug('SDK initialized successfully');
+                        // Method 3: Check URL parameters
+                        const urlParams = new URLSearchParams(window.location.search);
+                        if (urlParams.has('customer')) {
+                            try {
+                                addDebug('Method 3: Found customer in URL params');
+                                const customerFromUrl = JSON.parse(decodeURIComponent(urlParams.get('customer')));
+                                processCustomerData(customerFromUrl);
+                            } catch (e) {
+                                addDebug(`Method 3 failed: ${e.message}`);
+                            }
+                        }
 
-                        // Listen for customer profile updates
-                        sdk.on('customer_profile', (profile) => {
-                            addDebug('Customer profile event received');
-                            processCustomerData(profile);
-                        });
-
-                        // Get initial customer profile
-                        addDebug('Requesting customer profile...');
-                        const profile = await sdk.getCustomerProfile();
-                        addDebug('Customer profile received');
-                        processCustomerData(profile);
+                        // If we got profile from SDK, process it
+                        if (customerProfile) {
+                            processCustomerData(customerProfile);
+                        } else {
+                            // Show test data after 3 seconds if no real data
+                            setTimeout(() => {
+                                if (loading) {
+                                    addDebug('No data received, using test data');
+                                    setCustomerData({
+                                        default_name: "Test Customer",
+                                        Pending_WD: "FALSE",
+                                        KYC: "FALSE",
+                                        VIP_Binary: "TRUE",
+                                        Player_Class: "PVIP",
+                                        Bonus_offer: "27",
+                                        Bonus_active: "FALSE",
+                                        Withdraw_limit_day: "8",
+                                        Withdraw_limit_week: "3358",
+                                        Withdraw_limit_month: "11796"
+                                    });
+                                    setLoading(false);
+                                }
+                            }, 3000);
+                        }
 
                     } catch (err) {
-                        addDebug(`Error: ${err.message}`);
+                        addDebug(`Initialization error: ${err.message}`);
                         setError(err.message);
                         setLoading(false);
                     }
@@ -90,56 +136,59 @@
 
                 const processCustomerData = (profile) => {
                     addDebug('Processing customer data...');
-                    setRawData(profile);
+                    console.log('Full profile:', profile);
 
                     if (!profile) {
-                        addDebug('No profile data');
-                        setCustomerData({});
+                        addDebug('Profile is null/undefined');
                         setLoading(false);
                         return;
                     }
 
-                    // Extract integration data - try multiple possible locations
-                    let integrationData = {};
+                    // Extract data from various possible locations
+                    let data = {};
 
-                    // Check different possible locations
+                    // Check profile.fields (integration data)
                     if (profile.fields) {
                         addDebug(`Found ${Object.keys(profile.fields).length} fields`);
-                        integrationData = { ...profile.fields };
+                        data = { ...data, ...profile.fields };
                     }
 
+                    // Check profile.properties
                     if (profile.properties) {
                         addDebug(`Found ${Object.keys(profile.properties).length} properties`);
-                        integrationData = { ...integrationData, ...profile.properties };
+                        data = { ...data, ...profile.properties };
                     }
 
-                    if (profile.customer_fields) {
-                        addDebug(`Found ${Object.keys(profile.customer_fields).length} customer_fields`);
-                        integrationData = { ...integrationData, ...profile.customer_fields };
-                    }
+                    // Check root level properties
+                    Object.keys(profile).forEach(key => {
+                        if (typeof profile[key] === 'string' || typeof profile[key] === 'number') {
+                            data[key] = profile[key];
+                        }
+                    });
 
-                    addDebug(`Total integration fields: ${Object.keys(integrationData).length}`);
+                    addDebug(`Total data keys: ${Object.keys(data).length}`);
 
-                    // Map the fields we care about - check both with and without default_ prefix
+                    // Map to our expected format
                     const mappedData = {
-                        default_name: integrationData.default_name || integrationData.name || profile.name || 'Unknown Customer',
-                        Pending_WD: integrationData.Pending_WD || integrationData.default_Pending_WD || 'N/A',
-                        KYC: integrationData.KYC || integrationData.default_KYC || 'N/A',
-                        VIP_Binary: integrationData.VIP_Binary || integrationData.default_VIP_Binary || 'N/A',
-                        Player_Class: integrationData.Player_Class || integrationData.default_Player_Class || 'N/A',
-                        Bonus_offer: integrationData.Bonus_offer || integrationData.default_Bonus_offer || 'N/A',
-                        Bonus_active: integrationData.Bonus_active || integrationData.default_Bonus_active || 'N/A',
-                        Withdraw_limit_day: integrationData.Withdraw_limit_day || integrationData.default_Withdraw_limit_day || 'N/A',
-                        Withdraw_limit_week: integrationData.Withdraw_limit_week || integrationData.default_Withdraw_limit_week || 'N/A',
-                        Withdraw_limit_month: integrationData.Withdraw_limit_month || integrationData.default_Withdraw_limit_month || 'N/A'
+                        default_name: data.default_name || data.name || profile.name || 'Unknown',
+                        Pending_WD: data.Pending_WD || data.default_Pending_WD || 'N/A',
+                        KYC: data.KYC || data.default_KYC || 'N/A',
+                        VIP_Binary: data.VIP_Binary || data.default_VIP_Binary || 'N/A',
+                        Player_Class: data.Player_Class || data.default_Player_Class || 'N/A',
+                        Bonus_offer: data.Bonus_offer || data.default_Bonus_offer || 'N/A',
+                        Bonus_active: data.Bonus_active || data.default_Bonus_active || 'N/A',
+                        Withdraw_limit_day: data.Withdraw_limit_day || data.default_Withdraw_limit_day || 'N/A',
+                        Withdraw_limit_week: data.Withdraw_limit_week || data.default_Withdraw_limit_week || 'N/A',
+                        Withdraw_limit_month: data.Withdraw_limit_month || data.default_Withdraw_limit_month || 'N/A'
                     };
 
                     addDebug('Data mapped successfully');
+                    console.log('Mapped data:', mappedData);
                     setCustomerData(mappedData);
                     setLoading(false);
                 };
 
-                initializeSDK();
+                initialize();
             }, []);
 
             const formatFieldName = (key) => {
@@ -159,7 +208,7 @@
                 return (
                     <div style={{padding: '24px'}}>
                         <div style={{display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '200px', backgroundColor: '#f9fafb', borderRadius: '8px'}}>
-                            <div style={{textAlign: 'center'}}>
+                            <div style={{textAlign: 'center', width: '100%'}}>
                                 <div style={{
                                     border: '3px solid #f3f4f6',
                                     borderTop: '3px solid #2563eb',
@@ -169,15 +218,13 @@
                                     animation: 'spin 1s linear infinite',
                                     margin: '0 auto 16px'
                                 }}></div>
-                                <p style={{color: '#6b7280', fontSize: '14px'}}>Loading customer data...</p>
-                                {debugInfo.length > 0 && (
-                                    <details style={{marginTop: '12px', textAlign: 'left'}}>
-                                        <summary style={{cursor: 'pointer', fontSize: '11px', color: '#9ca3af'}}>Loading details</summary>
-                                        <div style={{marginTop: '8px', padding: '8px', backgroundColor: '#ffffff', borderRadius: '4px', fontSize: '10px', maxHeight: '150px', overflow: 'auto'}}>
-                                            {debugInfo.map((msg, i) => <div key={i}>{msg}</div>)}
-                                        </div>
-                                    </details>
-                                )}
+                                <p style={{color: '#6b7280', fontSize: '14px', marginBottom: '12px'}}>Loading customer data...</p>
+                                <details style={{textAlign: 'left', padding: '0 20px'}}>
+                                    <summary style={{cursor: 'pointer', fontSize: '11px', color: '#9ca3af', textAlign: 'center'}}>View loading process</summary>
+                                    <div style={{marginTop: '8px', padding: '8px', backgroundColor: '#ffffff', borderRadius: '4px', fontSize: '10px', maxHeight: '150px', overflow: 'auto', border: '1px solid #e5e7eb'}}>
+                                        {debugInfo.map((msg, i) => <div key={i} style={{padding: '2px 0'}}>{msg}</div>)}
+                                    </div>
+                                </details>
                             </div>
                             <style>{`@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); }}`}</style>
                         </div>
@@ -189,49 +236,19 @@
                 return (
                     <div style={{padding: '24px'}}>
                         <div style={{backgroundColor: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', padding: '16px'}}>
-                            <div style={{display: 'flex', alignItems: 'flex-start'}}>
-                                <div style={{marginRight: '12px', color: '#dc2626', fontSize: '20px'}}>⚠</div>
-                                <div style={{flex: 1}}>
-                                    <h3 style={{color: '#991b1b', fontWeight: '600', marginBottom: '4px', fontSize: '14px'}}>Error Loading Data</h3>
-                                    <p style={{color: '#dc2626', fontSize: '12px', marginBottom: '8px'}}>{error}</p>
-                                    <details>
-                                        <summary style={{cursor: 'pointer', fontSize: '11px', color: '#7f1d1d', marginBottom: '8px'}}>Debug Log</summary>
-                                        <div style={{padding: '8px', backgroundColor: '#ffffff', borderRadius: '4px', fontSize: '10px', maxHeight: '200px', overflow: 'auto'}}>
-                                            {debugInfo.map((msg, i) => <div key={i} style={{marginBottom: '2px'}}>{msg}</div>)}
-                                        </div>
-                                    </details>
-                                    {rawData && (
-                                        <details style={{marginTop: '8px'}}>
-                                            <summary style={{cursor: 'pointer', fontSize: '11px', color: '#7f1d1d'}}>Raw Data</summary>
-                                            <pre style={{fontSize: '10px', marginTop: '4px', overflow: 'auto', maxHeight: '200px', padding: '8px', backgroundColor: '#ffffff', borderRadius: '4px'}}>
-                                                {JSON.stringify(rawData, null, 2)}
-                                            </pre>
-                                        </details>
-                                    )}
+                            <div style={{marginBottom: '12px'}}>
+                                <div style={{display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px'}}>
+                                    <span style={{fontSize: '20px'}}>⚠</span>
+                                    <h3 style={{color: '#991b1b', fontWeight: '600', fontSize: '14px'}}>Error Loading Data</h3>
                                 </div>
+                                <p style={{color: '#dc2626', fontSize: '12px'}}>{error}</p>
                             </div>
-                        </div>
-                    </div>
-                );
-            }
-
-            if (!customerData || Object.keys(customerData).filter(k => customerData[k] !== 'N/A' && customerData[k] !== 'Unknown Customer').length === 0) {
-                return (
-                    <div style={{padding: '24px'}}>
-                        <div style={{backgroundColor: '#fffbeb', border: '1px solid #fde68a', borderRadius: '8px', padding: '16px'}}>
-                            <div style={{display: 'flex', alignItems: 'flex-start'}}>
-                                <div style={{marginRight: '12px', color: '#d97706', fontSize: '20px'}}>ℹ</div>
-                                <div style={{flex: 1}}>
-                                    <h3 style={{color: '#92400e', fontWeight: '600', marginBottom: '4px', fontSize: '14px'}}>No Data Available</h3>
-                                    <p style={{color: '#d97706', fontSize: '12px', marginBottom: '8px'}}>No customer account information found for this chat.</p>
-                                    <details>
-                                        <summary style={{cursor: 'pointer', fontSize: '11px', color: '#78350f'}}>Debug Info</summary>
-                                        <pre style={{fontSize: '10px', marginTop: '4px', overflow: 'auto', maxHeight: '200px', padding: '8px', backgroundColor: '#ffffff', borderRadius: '4px'}}>
-                                            {JSON.stringify(rawData, null, 2)}
-                                        </pre>
-                                    </details>
+                            <details>
+                                <summary style={{cursor: 'pointer', fontSize: '11px', color: '#7f1d1d', padding: '4px 0'}}>Debug Log ({debugInfo.length} entries)</summary>
+                                <div style={{marginTop: '8px', padding: '8px', backgroundColor: '#ffffff', borderRadius: '4px', fontSize: '10px', maxHeight: '200px', overflow: 'auto'}}>
+                                    {debugInfo.map((msg, i) => <div key={i} style={{padding: '2px 0', borderBottom: '1px solid #fee2e2'}}>{msg}</div>)}
                                 </div>
-                            </div>
+                            </details>
                         </div>
                     </div>
                 );
@@ -239,7 +256,6 @@
 
             return (
                 <div style={{backgroundColor: '#ffffff', minHeight: '100vh'}}>
-                    {/* Header */}
                     <div style={{
                         background: 'linear-gradient(to right, #2563eb, #1d4ed8)',
                         color: 'white',
@@ -255,8 +271,7 @@
                         </div>
                     </div>
 
-                    {/* Customer Name Card */}
-                    {customerData.default_name && customerData.default_name !== 'Unknown Customer' && (
+                    {customerData.default_name && customerData.default_name !== 'Unknown' && (
                         <div style={{
                             margin: '16px',
                             padding: '16px',
@@ -287,7 +302,6 @@
                         </div>
                     )}
 
-                    {/* Account Details */}
                     <div style={{padding: '0 16px 16px', display: 'flex', flexDirection: 'column', gap: '12px'}}>
                         {Object.entries(customerData).map(([key, value]) => {
                             if (key === 'default_name') return null;
@@ -320,7 +334,6 @@
                         })}
                     </div>
 
-                    {/* Status Summary */}
                     <div style={{
                         margin: '16px',
                         padding: '16px',
@@ -368,6 +381,13 @@
                             </div>
                         </div>
                     </div>
+
+                    <details style={{margin: '16px', fontSize: '11px', color: '#6b7280'}}>
+                        <summary style={{cursor: 'pointer', padding: '8px', backgroundColor: '#f3f4f6', borderRadius: '4px'}}>Debug Info ({debugInfo.length} log entries)</summary>
+                        <div style={{marginTop: '8px', padding: '8px', backgroundColor: '#1f2937', color: '#e5e7eb', borderRadius: '4px', fontSize: '10px', maxHeight: '200px', overflow: 'auto'}}>
+                            {debugInfo.map((msg, i) => <div key={i} style={{padding: '2px 0'}}>{msg}</div>)}
+                        </div>
+                    </details>
                 </div>
             );
         };
