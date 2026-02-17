@@ -378,14 +378,16 @@
             }
         }
 
-        function sendMessageToParent(type, data = {}) {
+        function sendMessageToParent(type, data = {}, request = null) {
             const message = {
                 '@@livechat/postmessenger': true,
                 owner: 'widget',
+                instance: 0,
                 type: type,
-                data: data
+                data: data,
+                request: request
             };
-            log(`Sending to parent: ${JSON.stringify(message)}`);
+            log(`Sending to parent: type=${type}`);
             window.parent.postMessage(message, '*');
         }
 
@@ -393,7 +395,7 @@
             try {
                 log('Widget initializing...');
                 
-                let handshakeReceived = false;
+                let handshakeCount = 0;
                 
                 // Listen for messages from LiveChat parent window
                 window.addEventListener('message', (event) => {
@@ -401,43 +403,63 @@
                     
                     // Check if it's a LiveChat postmessenger message
                     if (data && data['@@livechat/postmessenger']) {
-                        log(`LiveChat message: ${data.type}`);
                         
-                        if (data.type === 'handshake' && !handshakeReceived) {
-                            handshakeReceived = true;
-                            log('Handshake received, responding...');
-                            
-                            // Respond to handshake
-                            sendMessageToParent('handshake', {});
-                            
-                            // Request customer profile
-                            setTimeout(() => {
-                                log('Requesting customer profile...');
-                                sendMessageToParent('get_customer_profile', {});
-                            }, 500);
+                        if (data.type === 'handshake') {
+                            handshakeCount++;
+                            if (handshakeCount === 1) {
+                                log('First handshake received, responding...');
+                                sendMessageToParent('handshake', {});
+                            } else if (handshakeCount === 2) {
+                                log('Second handshake, SDK ready. Requesting data...');
+                                
+                                // Try multiple request types
+                                setTimeout(() => {
+                                    log('Requesting: get_customer_profile');
+                                    sendMessageToParent('request', {}, { method: 'get_customer_profile' });
+                                }, 100);
+                                
+                                setTimeout(() => {
+                                    log('Requesting: getCustomerProfile');  
+                                    sendMessageToParent('request', {}, { method: 'getCustomerProfile' });
+                                }, 200);
+                                
+                                setTimeout(() => {
+                                    log('Requesting: customer_profile');
+                                    sendMessageToParent('customer_profile', {});
+                                }, 300);
+                            }
+                            return;
                         }
                         
-                        if (data.type === 'customer_profile' && data.data) {
-                            log('Customer profile received!');
-                            log(`Customer data: ${JSON.stringify(data.data).substring(0, 200)}...`);
+                        // Log all non-handshake messages
+                        log(`LiveChat message type: ${data.type}`);
+                        
+                        if (data.data && Object.keys(data.data).length > 0) {
+                            log(`Data keys: ${Object.keys(data.data).join(', ')}`);
+                            log(`Data preview: ${JSON.stringify(data.data).substring(0, 150)}...`);
                             
-                            const customer = data.data;
-                            if (customer.id) {
-                                log(`Customer ID: ${customer.id}`);
-                                fetchCustomerData(customer.id);
-                            } else {
-                                log('No customer ID in profile data');
+                            // Check if this contains customer info
+                            if (data.data.id || data.data.customer_id || data.data.customerId) {
+                                const customerId = data.data.id || data.data.customer_id || data.data.customerId;
+                                log(`Found customer ID: ${customerId}`);
+                                fetchCustomerData(customerId);
+                            }
+                            
+                            // Check for nested customer object
+                            if (data.data.customer) {
+                                log(`Found nested customer object`);
+                                const customer = data.data.customer;
+                                if (customer.id) {
+                                    log(`Customer ID from nested: ${customer.id}`);
+                                    fetchCustomerData(customer.id);
+                                }
                             }
                         }
                         
-                        // Log any other message types
-                        if (data.type !== 'handshake') {
-                            log(`Received message type: ${data.type}, keys: ${Object.keys(data.data || {}).join(', ')}`);
+                        if (data.type === 'response' && data.data) {
+                            log('Response received!');
+                            log(`Response data: ${JSON.stringify(data.data).substring(0, 200)}...`);
                         }
-                    } else if (data && data.customerId) {
-                        // Direct customer ID message
-                        log(`Direct customer ID received: ${data.customerId}`);
-                        fetchCustomerData(data.customerId);
                     }
                 });
 
@@ -447,12 +469,12 @@
                 if (customerId) {
                     await fetchCustomerData(customerId);
                 } else {
-                    log('No customer ID in URL, waiting for LiveChat messages...');
+                    log('Waiting for LiveChat to provide customer data...');
                     
                     // Show error after 5 seconds if no data received
                     setTimeout(() => {
                         if (!customerData) {
-                            showError('Unable to load customer data. Check Debug Log for details.');
+                            showError('Unable to load customer data. The widget may need additional configuration in LiveChat Developer Console.');
                         }
                     }, 5000);
                 }
