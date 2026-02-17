@@ -7,6 +7,7 @@
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://unpkg.com/@livechat/agent-app-sdk@2.3.3/dist/agentapp.min.js"></script>
     <style>
         * {
             margin: 0;
@@ -34,65 +35,89 @@
             const [customerData, setCustomerData] = useState(null);
             const [loading, setLoading] = useState(true);
             const [error, setError] = useState(null);
+            const [rawData, setRawData] = useState(null);
 
             useEffect(() => {
                 const initializeSDK = async () => {
                     try {
-                        console.log('Initializing widget...');
+                        console.log('Initializing LiveChat Agent SDK...');
                         
-                        // Create SDK instance
-                        const sdk = window.LiveChatWidget || window.parent.LiveChatWidget;
-                        
-                        if (!sdk) {
-                            console.error('LiveChat SDK not found in window or parent');
-                            setError('LiveChat SDK not available');
-                            setLoading(false);
-                            return;
-                        }
+                        // Initialize SDK
+                        const sdk = await window.LiveChatAgentSDK.init();
+                        console.log('SDK initialized successfully');
 
-                        console.log('SDK found:', sdk);
-
-                        // Try to get customer data from the parent frame
-                        window.addEventListener('message', (event) => {
-                            console.log('Message received:', event.data);
-                            
-                            if (event.data && event.data.customer) {
-                                console.log('Customer data:', event.data.customer);
-                                setCustomerData(event.data.customer);
-                                setLoading(false);
-                            }
+                        // Listen for customer profile updates
+                        sdk.on('customer_profile', (profile) => {
+                            console.log('Customer profile event:', profile);
+                            processCustomerData(profile);
                         });
 
-                        // Request customer data
-                        if (window.parent) {
-                            window.parent.postMessage({ action: 'get_customer' }, '*');
+                        // Get initial customer profile
+                        try {
+                            const profile = await sdk.getCustomerProfile();
+                            console.log('Initial customer profile:', profile);
+                            processCustomerData(profile);
+                        } catch (err) {
+                            console.error('Error getting customer profile:', err);
+                            setError('Could not load customer data');
+                            setLoading(false);
                         }
 
-                        // For testing - use mock data after 2 seconds if no real data
-                        setTimeout(() => {
-                            if (loading) {
-                                console.log('Using mock data for testing');
-                                setCustomerData({
-                                    default_name: "James Taylor",
-                                    Pending_WD: "FALSE",
-                                    KYC: "TRUE",
-                                    VIP_Binary: "FALSE",
-                                    Player_Class: "RND",
-                                    Bonus_offer: "0",
-                                    Bonus_active: "FALSE",
-                                    Withdraw_limit_day: "320",
-                                    Withdraw_limit_week: "3352",
-                                    Withdraw_limit_month: "903"
-                                });
-                                setLoading(false);
-                            }
-                        }, 2000);
-
                     } catch (err) {
-                        console.error('Initialization error:', err);
-                        setError('Failed to initialize: ' + err.message);
+                        console.error('SDK initialization error:', err);
+                        setError('Failed to initialize widget: ' + err.message);
                         setLoading(false);
                     }
+                };
+
+                const processCustomerData = (profile) => {
+                    console.log('Processing customer data:', profile);
+                    setRawData(profile);
+
+                    if (!profile) {
+                        setCustomerData({});
+                        setLoading(false);
+                        return;
+                    }
+
+                    // Extract integration data - try multiple possible locations
+                    let integrationData = {};
+
+                    // Try: profile.fields (most common for integration data)
+                    if (profile.fields) {
+                        console.log('Found fields:', profile.fields);
+                        integrationData = { ...profile.fields };
+                    }
+
+                    // Try: profile.properties
+                    if (profile.properties) {
+                        console.log('Found properties:', profile.properties);
+                        integrationData = { ...integrationData, ...profile.properties };
+                    }
+
+                    // Try: profile.customer_fields
+                    if (profile.customer_fields) {
+                        console.log('Found customer_fields:', profile.customer_fields);
+                        integrationData = { ...integrationData, ...profile.customer_fields };
+                    }
+
+                    // Map the fields we care about
+                    const mappedData = {
+                        default_name: integrationData.default_name || profile.name || 'Unknown Customer',
+                        Pending_WD: integrationData.Pending_WD || integrationData.default_Pending_WD || 'N/A',
+                        KYC: integrationData.KYC || integrationData.default_KYC || 'N/A',
+                        VIP_Binary: integrationData.VIP_Binary || integrationData.default_VIP_Binary || 'N/A',
+                        Player_Class: integrationData.Player_Class || integrationData.default_Player_Class || 'N/A',
+                        Bonus_offer: integrationData.Bonus_offer || integrationData.default_Bonus_offer || 'N/A',
+                        Bonus_active: integrationData.Bonus_active || integrationData.default_Bonus_active || 'N/A',
+                        Withdraw_limit_day: integrationData.Withdraw_limit_day || integrationData.default_Withdraw_limit_day || 'N/A',
+                        Withdraw_limit_week: integrationData.Withdraw_limit_week || integrationData.default_Withdraw_limit_week || 'N/A',
+                        Withdraw_limit_month: integrationData.Withdraw_limit_month || integrationData.default_Withdraw_limit_month || 'N/A'
+                    };
+
+                    console.log('Mapped data:', mappedData);
+                    setCustomerData(mappedData);
+                    setLoading(false);
                 };
 
                 initializeSDK();
@@ -103,10 +128,12 @@
             };
 
             const getStatusColor = (value) => {
-                if (value === "TRUE") return "color: #16a34a; background-color: #f0fdf4; padding: 4px 8px; border-radius: 4px; display: inline-block;";
-                if (value === "FALSE") return "color: #4b5563; background-color: #f9fafb; padding: 4px 8px; border-radius: 4px; display: inline-block;";
-                if (value && value.includes && value.includes("VIP")) return "color: #9333ea; background-color: #faf5ff; padding: 4px 8px; border-radius: 4px; display: inline-block;";
-                return "color: #2563eb; background-color: #eff6ff; padding: 4px 8px; border-radius: 4px; display: inline-block;";
+                const valueStr = String(value).toUpperCase();
+                if (valueStr === "TRUE") return "color: #16a34a; background-color: #f0fdf4; padding: 4px 8px; border-radius: 4px; display: inline-block; font-weight: 600;";
+                if (valueStr === "FALSE") return "color: #4b5563; background-color: #f9fafb; padding: 4px 8px; border-radius: 4px; display: inline-block; font-weight: 600;";
+                if (valueStr.includes("VIP") || valueStr === "PVIP") return "color: #9333ea; background-color: #faf5ff; padding: 4px 8px; border-radius: 4px; display: inline-block; font-weight: 600;";
+                if (valueStr === "N/A") return "color: #9ca3af; background-color: #f3f4f6; padding: 4px 8px; border-radius: 4px; display: inline-block; font-style: italic;";
+                return "color: #2563eb; background-color: #eff6ff; padding: 4px 8px; border-radius: 4px; display: inline-block; font-weight: 600;";
             };
 
             if (loading) {
@@ -122,7 +149,7 @@
                                 animation: 'spin 1s linear infinite',
                                 margin: '0 auto 16px'
                             }}></div>
-                            <p style={{color: '#6b7280'}}>Loading customer data...</p>
+                            <p style={{color: '#6b7280', fontSize: '14px'}}>Loading customer data...</p>
                         </div>
                         <style>{`@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); }}`}</style>
                     </div>
@@ -131,26 +158,46 @@
 
             if (error) {
                 return (
-                    <div style={{padding: '24px', backgroundColor: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', margin: '16px'}}>
-                        <div style={{display: 'flex', alignItems: 'flex-start'}}>
-                            <div style={{marginRight: '12px', color: '#dc2626', fontSize: '20px'}}>⚠</div>
-                            <div>
-                                <h3 style={{color: '#991b1b', fontWeight: '600', marginBottom: '4px'}}>Error Loading Data</h3>
-                                <p style={{color: '#dc2626', fontSize: '14px'}}>{error}</p>
+                    <div style={{padding: '24px'}}>
+                        <div style={{backgroundColor: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', padding: '16px'}}>
+                            <div style={{display: 'flex', alignItems: 'flex-start'}}>
+                                <div style={{marginRight: '12px', color: '#dc2626', fontSize: '20px'}}>⚠</div>
+                                <div>
+                                    <h3 style={{color: '#991b1b', fontWeight: '600', marginBottom: '4px', fontSize: '14px'}}>Error Loading Data</h3>
+                                    <p style={{color: '#dc2626', fontSize: '12px'}}>{error}</p>
+                                    {rawData && (
+                                        <details style={{marginTop: '8px'}}>
+                                            <summary style={{cursor: 'pointer', fontSize: '11px', color: '#7f1d1d'}}>Debug Info</summary>
+                                            <pre style={{fontSize: '10px', marginTop: '4px', overflow: 'auto', maxHeight: '200px'}}>
+                                                {JSON.stringify(rawData, null, 2)}
+                                            </pre>
+                                        </details>
+                                    )}
+                                </div>
                             </div>
                         </div>
                     </div>
                 );
             }
 
-            if (!customerData || Object.keys(customerData).length === 0) {
+            if (!customerData || Object.keys(customerData).filter(k => customerData[k] !== 'N/A' && customerData[k] !== 'Unknown Customer').length === 0) {
                 return (
-                    <div style={{padding: '24px', backgroundColor: '#fffbeb', border: '1px solid #fde68a', borderRadius: '8px', margin: '16px'}}>
-                        <div style={{display: 'flex', alignItems: 'flex-start'}}>
-                            <div style={{marginRight: '12px', color: '#d97706', fontSize: '20px'}}>ℹ</div>
-                            <div>
-                                <h3 style={{color: '#92400e', fontWeight: '600', marginBottom: '4px'}}>No Data Available</h3>
-                                <p style={{color: '#d97706', fontSize: '14px'}}>No customer account information found for this chat.</p>
+                    <div style={{padding: '24px'}}>
+                        <div style={{backgroundColor: '#fffbeb', border: '1px solid #fde68a', borderRadius: '8px', padding: '16px'}}>
+                            <div style={{display: 'flex', alignItems: 'flex-start'}}>
+                                <div style={{marginRight: '12px', color: '#d97706', fontSize: '20px'}}>ℹ</div>
+                                <div>
+                                    <h3 style={{color: '#92400e', fontWeight: '600', marginBottom: '4px', fontSize: '14px'}}>No Data Available</h3>
+                                    <p style={{color: '#d97706', fontSize: '12px'}}>No customer account information found for this chat.</p>
+                                    {rawData && (
+                                        <details style={{marginTop: '8px'}}>
+                                            <summary style={{cursor: 'pointer', fontSize: '11px', color: '#78350f'}}>Debug Info</summary>
+                                            <pre style={{fontSize: '10px', marginTop: '4px', overflow: 'auto', maxHeight: '200px'}}>
+                                                {JSON.stringify(rawData, null, 2)}
+                                            </pre>
+                                        </details>
+                                    )}
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -176,7 +223,7 @@
                     </div>
 
                     {/* Customer Name Card */}
-                    {customerData.default_name && (
+                    {customerData.default_name && customerData.default_name !== 'Unknown Customer' && (
                         <div style={{
                             margin: '16px',
                             padding: '16px',
@@ -217,9 +264,8 @@
                                     backgroundColor: 'white',
                                     border: '1px solid #e5e7eb',
                                     borderRadius: '8px',
-                                    padding: '16px',
-                                    transition: 'box-shadow 0.2s',
-                                    cursor: 'default'
+                                    padding: '14px',
+                                    transition: 'box-shadow 0.2s'
                                 }}
                                 onMouseEnter={(e) => e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1)'}
                                 onMouseLeave={(e) => e.currentTarget.style.boxShadow = 'none'}>
@@ -229,11 +275,11 @@
                                         color: '#6b7280',
                                         textTransform: 'uppercase',
                                         letterSpacing: '0.05em',
-                                        marginBottom: '8px'
+                                        marginBottom: '6px'
                                     }}>
                                         {formatFieldName(key)}
                                     </p>
-                                    <div style={{fontSize: '14px', fontWeight: '600'}}>
+                                    <div style={{fontSize: '13px'}}>
                                         <span style={getStatusColor(value)}>{value}</span>
                                     </div>
                                 </div>
@@ -256,7 +302,7 @@
                                     width: '8px',
                                     height: '8px',
                                     borderRadius: '50%',
-                                    backgroundColor: customerData.KYC === 'TRUE' ? '#22c55e' : '#d1d5db'
+                                    backgroundColor: String(customerData.KYC).toUpperCase() === 'TRUE' ? '#22c55e' : '#d1d5db'
                                 }}></div>
                                 <span style={{fontSize: '12px', color: '#6b7280'}}>KYC Verified</span>
                             </div>
@@ -265,7 +311,7 @@
                                     width: '8px',
                                     height: '8px',
                                     borderRadius: '50%',
-                                    backgroundColor: customerData.VIP_Binary === 'TRUE' ? '#a855f7' : '#d1d5db'
+                                    backgroundColor: String(customerData.VIP_Binary).toUpperCase() === 'TRUE' ? '#a855f7' : '#d1d5db'
                                 }}></div>
                                 <span style={{fontSize: '12px', color: '#6b7280'}}>VIP Status</span>
                             </div>
@@ -274,7 +320,7 @@
                                     width: '8px',
                                     height: '8px',
                                     borderRadius: '50%',
-                                    backgroundColor: customerData.Pending_WD === 'TRUE' ? '#eab308' : '#d1d5db'
+                                    backgroundColor: String(customerData.Pending_WD).toUpperCase() === 'TRUE' ? '#eab308' : '#d1d5db'
                                 }}></div>
                                 <span style={{fontSize: '12px', color: '#6b7280'}}>Pending Withdrawal</span>
                             </div>
@@ -283,12 +329,22 @@
                                     width: '8px',
                                     height: '8px',
                                     borderRadius: '50%',
-                                    backgroundColor: customerData.Bonus_active === 'TRUE' ? '#3b82f6' : '#d1d5db'
+                                    backgroundColor: String(customerData.Bonus_active).toUpperCase() === 'TRUE' ? '#3b82f6' : '#d1d5db'
                                 }}></div>
                                 <span style={{fontSize: '12px', color: '#6b7280'}}>Active Bonus</span>
                             </div>
                         </div>
                     </div>
+
+                    {/* Debug toggle */}
+                    {rawData && (
+                        <details style={{margin: '16px', fontSize: '11px', color: '#6b7280'}}>
+                            <summary style={{cursor: 'pointer', padding: '8px', backgroundColor: '#f3f4f6', borderRadius: '4px'}}>Debug: View Raw Data</summary>
+                            <pre style={{marginTop: '8px', padding: '12px', backgroundColor: '#1f2937', color: '#e5e7eb', borderRadius: '4px', overflow: 'auto', fontSize: '10px'}}>
+                                {JSON.stringify(rawData, null, 2)}
+                            </pre>
+                        </details>
+                    )}
                 </div>
             );
         };
