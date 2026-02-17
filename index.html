@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Account Info Widget</title>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@livechat/agent-app-sdk@2.3.3/dist/agentapp.min.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif;
+            background-color: #ffffff;
+            overflow-x: hidden;
+        }
+        #root {
+            width: 100%;
+            min-height: 100vh;
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+
+        const AccountWidget = () => {
+            const [customerData, setCustomerData] = useState(null);
+            const [loading, setLoading] = useState(true);
+            const [error, setError] = useState(null);
+            const [sdk, setSdk] = useState(null);
+
+            useEffect(() => {
+                const initializeSDK = async () => {
+                    try {
+                        console.log('Initializing LiveChat SDK...');
+                        
+                        // Initialize the Agent App SDK
+                        const agentSDK = await window.LiveChatAgentSDK.init();
+                        setSdk(agentSDK);
+                        console.log('SDK initialized:', agentSDK);
+
+                        // Get current customer details
+                        agentSDK.on('customer_profile', (profile) => {
+                            console.log('Customer profile received:', profile);
+                            
+                            if (profile && profile.id) {
+                                // Extract custom properties
+                                const customProps = {};
+                                
+                                // Check if properties exist in the profile
+                                if (profile.fields) {
+                                    Object.keys(profile.fields).forEach(key => {
+                                        customProps[key] = profile.fields[key];
+                                    });
+                                }
+                                
+                                console.log('Custom properties:', customProps);
+                                
+                                // Set the data
+                                setCustomerData(customProps);
+                                setLoading(false);
+                            }
+                        });
+
+                        // Request customer details for current chat
+                        const customerData = await agentSDK.getCustomerProfile();
+                        console.log('Initial customer data:', customerData);
+                        
+                        if (customerData && customerData.fields) {
+                            setCustomerData(customerData.fields);
+                            setLoading(false);
+                        } else {
+                            // No data found
+                            setCustomerData({});
+                            setLoading(false);
+                        }
+
+                    } catch (err) {
+                        console.error('SDK initialization error:', err);
+                        setError('Failed to connect to LiveChat: ' + err.message);
+                        setLoading(false);
+                    }
+                };
+
+                initializeSDK();
+            }, []);
+
+            const formatFieldName = (key) => {
+                return key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+            };
+
+            const getStatusColor = (value) => {
+                if (value === "TRUE") return "color: #16a34a; background-color: #f0fdf4; padding: 4px 8px; border-radius: 4px; display: inline-block;";
+                if (value === "FALSE") return "color: #4b5563; background-color: #f9fafb; padding: 4px 8px; border-radius: 4px; display: inline-block;";
+                if (value && value.includes && value.includes("VIP")) return "color: #9333ea; background-color: #faf5ff; padding: 4px 8px; border-radius: 4px; display: inline-block;";
+                return "color: #2563eb; background-color: #eff6ff; padding: 4px 8px; border-radius: 4px; display: inline-block;";
+            };
+
+            if (loading) {
+                return (
+                    <div style={{display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '300px', backgroundColor: '#f9fafb'}}>
+                        <div style={{textAlign: 'center'}}>
+                            <div style={{
+                                border: '3px solid #f3f4f6',
+                                borderTop: '3px solid #2563eb',
+                                borderRadius: '50%',
+                                width: '48px',
+                                height: '48px',
+                                animation: 'spin 1s linear infinite',
+                                margin: '0 auto 16px'
+                            }}></div>
+                            <p style={{color: '#6b7280'}}>Loading customer data...</p>
+                        </div>
+                        <style>{`@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); }}`}</style>
+                    </div>
+                );
+            }
+
+            if (error) {
+                return (
+                    <div style={{padding: '24px', backgroundColor: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', margin: '16px'}}>
+                        <div style={{display: 'flex', alignItems: 'flex-start'}}>
+                            <div style={{marginRight: '12px', color: '#dc2626', fontSize: '20px'}}>⚠</div>
+                            <div>
+                                <h3 style={{color: '#991b1b', fontWeight: '600', marginBottom: '4px'}}>Error Loading Data</h3>
+                                <p style={{color: '#dc2626', fontSize: '14px'}}>{error}</p>
+                            </div>
+                        </div>
+                    </div>
+                );
+            }
+
+            if (!customerData || Object.keys(customerData).length === 0) {
+                return (
+                    <div style={{padding: '24px', backgroundColor: '#fffbeb', border: '1px solid #fde68a', borderRadius: '8px', margin: '16px'}}>
+                        <div style={{display: 'flex', alignItems: 'flex-start'}}>
+                            <div style={{marginRight: '12px', color: '#d97706', fontSize: '20px'}}>ℹ</div>
+                            <div>
+                                <h3 style={{color: '#92400e', fontWeight: '600', marginBottom: '4px'}}>No Data Available</h3>
+                                <p style={{color: '#d97706', fontSize: '14px'}}>No customer account information found for this chat.</p>
+                            </div>
+                        </div>
+                    </div>
+                );
+            }
+
+            return (
+                <div style={{backgroundColor: '#ffffff', minHeight: '100vh'}}>
+                    {/* Header */}
+                    <div style={{
+                        background: 'linear-gradient(to right, #2563eb, #1d4ed8)',
+                        color: 'white',
+                        padding: '16px',
+                        position: 'sticky',
+                        top: 0,
+                        zIndex: 10,
+                        boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
+                    }}>
+                        <div style={{display: 'flex', alignItems: 'center', gap: '8px'}}>
+                            <span style={{fontSize: '20px'}}>👤</span>
+                            <h2 style={{fontSize: '18px', fontWeight: '600'}}>Account Information</h2>
+                        </div>
+                    </div>
+
+                    {/* Customer Name Card */}
+                    {customerData.default_name && (
+                        <div style={{
+                            margin: '16px',
+                            padding: '16px',
+                            background: 'linear-gradient(to right, #eff6ff, #dbeafe)',
+                            borderRadius: '8px',
+                            border: '1px solid #bfdbfe'
+                        }}>
+                            <div style={{display: 'flex', alignItems: 'center', gap: '12px'}}>
+                                <div style={{
+                                    width: '48px',
+                                    height: '48px',
+                                    backgroundColor: '#2563eb',
+                                    borderRadius: '50%',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    color: 'white',
+                                    fontWeight: 'bold',
+                                    fontSize: '18px'
+                                }}>
+                                    {customerData.default_name.charAt(0)}
+                                </div>
+                                <div>
+                                    <p style={{fontSize: '11px', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em'}}>Customer</p>
+                                    <p style={{fontSize: '18px', fontWeight: 'bold', color: '#1f2937'}}>{customerData.default_name}</p>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Account Details */}
+                    <div style={{padding: '0 16px 16px', display: 'flex', flexDirection: 'column', gap: '12px'}}>
+                        {Object.entries(customerData).map(([key, value]) => {
+                            if (key === 'default_name') return null;
+                            
+                            return (
+                                <div key={key} style={{
+                                    backgroundColor: 'white',
+                                    border: '1px solid #e5e7eb',
+                                    borderRadius: '8px',
+                                    padding: '16px',
+                                    transition: 'box-shadow 0.2s',
+                                    cursor: 'default'
+                                }}
+                                onMouseEnter={(e) => e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1)'}
+                                onMouseLeave={(e) => e.currentTarget.style.boxShadow = 'none'}>
+                                    <p style={{
+                                        fontSize: '11px',
+                                        fontWeight: '500',
+                                        color: '#6b7280',
+                                        textTransform: 'uppercase',
+                                        letterSpacing: '0.05em',
+                                        marginBottom: '8px'
+                                    }}>
+                                        {formatFieldName(key)}
+                                    </p>
+                                    <div style={{fontSize: '14px', fontWeight: '600'}}>
+                                        <span style={getStatusColor(value)}>{value}</span>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+
+                    {/* Status Summary */}
+                    <div style={{
+                        margin: '16px',
+                        padding: '16px',
+                        backgroundColor: '#f9fafb',
+                        borderRadius: '8px',
+                        border: '1px solid #e5e7eb'
+                    }}>
+                        <h3 style={{fontSize: '14px', fontWeight: '600', color: '#374151', marginBottom: '12px'}}>Quick Status</h3>
+                        <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px'}}>
+                            <div style={{display: 'flex', alignItems: 'center', gap: '8px'}}>
+                                <div style={{
+                                    width: '8px',
+                                    height: '8px',
+                                    borderRadius: '50%',
+                                    backgroundColor: customerData.KYC === 'TRUE' ? '#22c55e' : '#d1d5db'
+                                }}></div>
+                                <span style={{fontSize: '12px', color: '#6b7280'}}>KYC Verified</span>
+                            </div>
+                            <div style={{display: 'flex', alignItems: 'center', gap: '8px'}}>
+                                <div style={{
+                                    width: '8px',
+                                    height: '8px',
+                                    borderRadius: '50%',
+                                    backgroundColor: customerData.VIP_Binary === 'TRUE' ? '#a855f7' : '#d1d5db'
+                                }}></div>
+                                <span style={{fontSize: '12px', color: '#6b7280'}}>VIP Status</span>
+                            </div>
+                            <div style={{display: 'flex', alignItems: 'center', gap: '8px'}}>
+                                <div style={{
+                                    width: '8px',
+                                    height: '8px',
+                                    borderRadius: '50%',
+                                    backgroundColor: customerData.Pending_WD === 'TRUE' ? '#eab308' : '#d1d5db'
+                                }}></div>
+                                <span style={{fontSize: '12px', color: '#6b7280'}}>Pending Withdrawal</span>
+                            </div>
+                            <div style={{display: 'flex', alignItems: 'center', gap: '8px'}}>
+                                <div style={{
+                                    width: '8px',
+                                    height: '8px',
+                                    borderRadius: '50%',
+                                    backgroundColor: customerData.Bonus_active === 'TRUE' ? '#3b82f6' : '#d1d5db'
+                                }}></div>
+                                <span style={{fontSize: '12px', color: '#6b7280'}}>Active Bonus</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        ReactDOM.render(<AccountWidget />, document.getElementById('root'));
+    </script>
+</body>
+</html>
