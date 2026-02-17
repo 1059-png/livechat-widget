@@ -4,10 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Account Info Widget</title>
-    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    <script src="https://unpkg.com/@livechat/agent-app-sdk@2.3.3/dist/agentapp.min.js"></script>
     <style>
         * {
             margin: 0;
@@ -23,308 +19,319 @@
             width: 100%;
             min-height: 100vh;
         }
+        .header {
+            background: linear-gradient(to right, #2563eb, #1d4ed8);
+            color: white;
+            padding: 16px;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .customer-card {
+            margin: 16px;
+            padding: 16px;
+            background: linear-gradient(to right, #eff6ff, #dbeafe);
+            border-radius: 8px;
+            border: 1px solid #bfdbfe;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .avatar {
+            width: 48px;
+            height: 48px;
+            background-color: #2563eb;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: bold;
+            font-size: 18px;
+        }
+        .field-card {
+            background-color: white;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            padding: 14px;
+            transition: box-shadow 0.2s;
+        }
+        .field-card:hover {
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+        .field-label {
+            font-size: 11px;
+            font-weight: 500;
+            color: #6b7280;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 6px;
+        }
+        .field-value {
+            font-size: 13px;
+        }
+        .status-true {
+            color: #16a34a;
+            background-color: #f0fdf4;
+            padding: 4px 8px;
+            border-radius: 4px;
+            display: inline-block;
+            font-weight: 600;
+        }
+        .status-false {
+            color: #4b5563;
+            background-color: #f9fafb;
+            padding: 4px 8px;
+            border-radius: 4px;
+            display: inline-block;
+            font-weight: 600;
+        }
+        .status-vip {
+            color: #9333ea;
+            background-color: #faf5ff;
+            padding: 4px 8px;
+            border-radius: 4px;
+            display: inline-block;
+            font-weight: 600;
+        }
+        .status-default {
+            color: #2563eb;
+            background-color: #eff6ff;
+            padding: 4px 8px;
+            border-radius: 4px;
+            display: inline-block;
+            font-weight: 600;
+        }
+        .quick-status {
+            margin: 16px;
+            padding: 16px;
+            background-color: #f9fafb;
+            border-radius: 8px;
+            border: 1px solid #e5e7eb;
+        }
+        .status-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            margin-top: 12px;
+        }
+        .status-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+        }
+        .loading-container {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 200px;
+            background-color: #f9fafb;
+            border-radius: 8px;
+            margin: 24px;
+        }
+        .spinner {
+            border: 3px solid #f3f4f6;
+            border-top: 3px solid #2563eb;
+            border-radius: 50%;
+            width: 48px;
+            height: 48px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 16px;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
     </style>
 </head>
 <body>
-    <div id="root"></div>
+    <div id="root">
+        <div class="loading-container">
+            <div style="text-align: center;">
+                <div class="spinner"></div>
+                <p style="color: #6b7280; font-size: 14px;">Loading customer data...</p>
+            </div>
+        </div>
+    </div>
 
-    <script type="text/babel">
-        const { useState, useEffect } = React;
+    <script>
+        let customerData = null;
 
-        const AccountWidget = () => {
-            const [customerData, setCustomerData] = useState(null);
-            const [loading, setLoading] = useState(true);
-            const [error, setError] = useState(null);
-            const [debugInfo, setDebugInfo] = useState([]);
+        function formatFieldName(key) {
+            return key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+        }
 
-            const addDebug = (msg) => {
-                console.log(msg);
-                setDebugInfo(prev => [...prev, `${new Date().toLocaleTimeString()}: ${msg}`]);
-            };
+        function getStatusClass(value) {
+            const valueStr = String(value).toUpperCase();
+            if (valueStr === "TRUE") return "status-true";
+            if (valueStr === "FALSE") return "status-false";
+            if (valueStr.includes("VIP") || valueStr === "PVIP") return "status-vip";
+            return "status-default";
+        }
 
-            useEffect(() => {
-                const initialize = async () => {
-                    try {
-                        addDebug('Widget initializing...');
-                        
-                        // Method 1: Try SDK if available
-                        if (window.LiveChatAgentSDK) {
-                            try {
-                                addDebug('Attempting SDK initialization');
-                                const sdk = await window.LiveChatAgentSDK.init();
-                                const profile = await sdk.getCustomerProfile();
-                                processCustomerData(profile);
-                                return;
-                            } catch (e) {
-                                addDebug(`SDK failed: ${e.message}`);
-                            }
-                        }
+        function renderWidget() {
+            const root = document.getElementById('root');
+            
+            if (!customerData) {
+                return;
+            }
 
-                        // Method 2: Listen for postMessage
-                        addDebug('Method 2: Setting up postMessage listener');
-                        window.addEventListener('message', (event) => {
-                            if (event.data && (event.data.customer || event.data.customerProfile)) {
-                                processCustomerData(event.data.customer || event.data.customerProfile);
-                            }
-                        });
+            let html = `
+                <div class="header">
+                    <span style="font-size: 20px;">👤</span>
+                    <h2 style="font-size: 18px; font-weight: 600;">Account Information</h2>
+                </div>
+            `;
 
-                        if (window.parent !== window) {
-                            window.parent.postMessage({ type: 'GET_CUSTOMER_DATA' }, '*');
-                        }
+            if (customerData.default_name && customerData.default_name !== 'Unknown') {
+                html += `
+                    <div class="customer-card">
+                        <div class="avatar">${customerData.default_name.charAt(0)}</div>
+                        <div>
+                            <p style="font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.05em;">Customer</p>
+                            <p style="font-size: 18px; font-weight: bold; color: #1f2937;">${customerData.default_name}</p>
+                        </div>
+                    </div>
+                `;
+            }
 
-                        // Show test data after 3 seconds
-                        setTimeout(() => {
-                            if (loading) {
-                                addDebug('No data received, using test data');
-                                setCustomerData({
-                                    default_name: "Test Customer",
-                                    Pending_WD: "FALSE",
-                                    KYC: "FALSE",
-                                    VIP_Binary: "TRUE",
-                                    Player_Class: "PVIP",
-                                    Bonus_offer: "27",
-                                    Bonus_active: "FALSE",
-                                    Withdraw_limit_day: "8",
-                                    Withdraw_limit_week: "3358",
-                                    Withdraw_limit_month: "11796"
-                                });
-                                setLoading(false);
-                            }
-                        }, 3000);
+            html += '<div style="padding: 0 16px 16px; display: flex; flex-direction: column; gap: 12px;">';
+            
+            Object.entries(customerData).forEach(([key, value]) => {
+                if (key === 'default_name') return;
+                
+                html += `
+                    <div class="field-card">
+                        <div class="field-label">${formatFieldName(key)}</div>
+                        <div class="field-value">
+                            <span class="${getStatusClass(value)}">${value}</span>
+                        </div>
+                    </div>
+                `;
+            });
 
-                    } catch (err) {
-                        addDebug(`Error: ${err.message}`);
-                        setError(err.message);
-                        setLoading(false);
-                    }
-                };
+            html += '</div>';
 
-                const processCustomerData = (profile) => {
-                    if (!profile) {
-                        setLoading(false);
+            html += `
+                <div class="quick-status">
+                    <h3 style="font-size: 14px; font-weight: 600; color: #374151; margin-bottom: 12px;">Quick Status</h3>
+                    <div class="status-grid">
+                        <div class="status-item">
+                            <div class="status-dot" style="background-color: ${String(customerData.KYC).toUpperCase() === 'TRUE' ? '#22c55e' : '#d1d5db'};"></div>
+                            <span style="font-size: 12px; color: #6b7280;">KYC Verified</span>
+                        </div>
+                        <div class="status-item">
+                            <div class="status-dot" style="background-color: ${String(customerData.VIP_Binary).toUpperCase() === 'TRUE' ? '#a855f7' : '#d1d5db'};"></div>
+                            <span style="font-size: 12px; color: #6b7280;">VIP Status</span>
+                        </div>
+                        <div class="status-item">
+                            <div class="status-dot" style="background-color: ${String(customerData.Pending_WD).toUpperCase() === 'TRUE' ? '#eab308' : '#d1d5db'};"></div>
+                            <span style="font-size: 12px; color: #6b7280;">Pending Withdrawal</span>
+                        </div>
+                        <div class="status-item">
+                            <div class="status-dot" style="background-color: ${String(customerData.Bonus_active).toUpperCase() === 'TRUE' ? '#3b82f6' : '#d1d5db'};"></div>
+                            <span style="font-size: 12px; color: #6b7280;">Active Bonus</span>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            root.innerHTML = html;
+        }
+
+        async function initialize() {
+            console.log('Widget initializing...');
+
+            // Try to get SDK data
+            if (window.LiveChatAgentSDK) {
+                try {
+                    console.log('Attempting SDK initialization');
+                    const sdk = await window.LiveChatAgentSDK.init();
+                    const profile = await sdk.getCustomerProfile();
+                    
+                    if (profile && profile.fields) {
+                        customerData = {
+                            default_name: profile.fields.default_name || profile.name || 'Unknown',
+                            Pending_WD: profile.fields.Pending_WD || profile.fields.default_Pending_WD || 'N/A',
+                            KYC: profile.fields.KYC || profile.fields.default_KYC || 'N/A',
+                            VIP_Binary: profile.fields.VIP_Binary || profile.fields.default_VIP_Binary || 'N/A',
+                            Player_Class: profile.fields.Player_Class || profile.fields.default_Player_Class || 'N/A',
+                            Bonus_offer: profile.fields.Bonus_offer || profile.fields.default_Bonus_offer || 'N/A',
+                            Bonus_active: profile.fields.Bonus_active || profile.fields.default_Bonus_active || 'N/A',
+                            Withdraw_limit_day: profile.fields.Withdraw_limit_day || profile.fields.default_Withdraw_limit_day || 'N/A',
+                            Withdraw_limit_week: profile.fields.Withdraw_limit_week || profile.fields.default_Withdraw_limit_week || 'N/A',
+                            Withdraw_limit_month: profile.fields.Withdraw_limit_month || profile.fields.default_Withdraw_limit_month || 'N/A'
+                        };
+                        renderWidget();
                         return;
                     }
+                } catch (e) {
+                    console.log('SDK failed:', e.message);
+                }
+            }
 
-                    addDebug('Processing customer data');
-                    let data = {};
+            // Listen for postMessage
+            window.addEventListener('message', (event) => {
+                if (event.data && (event.data.customer || event.data.customerProfile)) {
+                    const profile = event.data.customer || event.data.customerProfile;
+                    console.log('Received data via postMessage', profile);
+                    processCustomerData(profile);
+                }
+            });
 
-                    if (profile.fields) data = { ...data, ...profile.fields };
-                    if (profile.properties) data = { ...data, ...profile.properties };
-
-                    const mappedData = {
-                        default_name: data.default_name || data.name || profile.name || 'Unknown',
-                        Pending_WD: data.Pending_WD || data.default_Pending_WD || 'N/A',
-                        KYC: data.KYC || data.default_KYC || 'N/A',
-                        VIP_Binary: data.VIP_Binary || data.default_VIP_Binary || 'N/A',
-                        Player_Class: data.Player_Class || data.default_Player_Class || 'N/A',
-                        Bonus_offer: data.Bonus_offer || data.default_Bonus_offer || 'N/A',
-                        Bonus_active: data.Bonus_active || data.default_Bonus_active || 'N/A',
-                        Withdraw_limit_day: data.Withdraw_limit_day || data.default_Withdraw_limit_day || 'N/A',
-                        Withdraw_limit_week: data.Withdraw_limit_week || data.default_Withdraw_limit_week || 'N/A',
-                        Withdraw_limit_month: data.Withdraw_limit_month || data.default_Withdraw_limit_month || 'N/A'
+            // Show test data after 3 seconds
+            setTimeout(() => {
+                if (!customerData) {
+                    console.log('No data received, using test data');
+                    customerData = {
+                        default_name: "Test Customer",
+                        Pending_WD: "FALSE",
+                        KYC: "FALSE",
+                        VIP_Binary: "TRUE",
+                        Player_Class: "PVIP",
+                        Bonus_offer: "27",
+                        Bonus_active: "FALSE",
+                        Withdraw_limit_day: "8",
+                        Withdraw_limit_week: "3358",
+                        Withdraw_limit_month: "11796"
                     };
+                    renderWidget();
+                }
+            }, 3000);
+        }
 
-                    setCustomerData(mappedData);
-                    setLoading(false);
-                };
-
-                initialize();
-            }, []);
-
-            const formatFieldName = (key) => {
-                return key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+        function processCustomerData(profile) {
+            const data = profile.fields || profile.properties || profile;
+            customerData = {
+                default_name: data.default_name || data.name || profile.name || 'Unknown',
+                Pending_WD: data.Pending_WD || data.default_Pending_WD || 'N/A',
+                KYC: data.KYC || data.default_KYC || 'N/A',
+                VIP_Binary: data.VIP_Binary || data.default_VIP_Binary || 'N/A',
+                Player_Class: data.Player_Class || data.default_Player_Class || 'N/A',
+                Bonus_offer: data.Bonus_offer || data.default_Bonus_offer || 'N/A',
+                Bonus_active: data.Bonus_active || data.default_Bonus_active || 'N/A',
+                Withdraw_limit_day: data.Withdraw_limit_day || data.default_Withdraw_limit_day || 'N/A',
+                Withdraw_limit_week: data.Withdraw_limit_week || data.default_Withdraw_limit_week || 'N/A',
+                Withdraw_limit_month: data.Withdraw_limit_month || data.default_Withdraw_limit_month || 'N/A'
             };
+            renderWidget();
+        }
 
-            const getStatusColor = (value) => {
-                const valueStr = String(value).toUpperCase();
-                if (valueStr === "TRUE") return "color: #16a34a; background-color: #f0fdf4; padding: 4px 8px; border-radius: 4px; display: inline-block; font-weight: 600;";
-                if (valueStr === "FALSE") return "color: #4b5563; background-color: #f9fafb; padding: 4px 8px; border-radius: 4px; display: inline-block; font-weight: 600;";
-                if (valueStr.includes("VIP") || valueStr === "PVIP") return "color: #9333ea; background-color: #faf5ff; padding: 4px 8px; border-radius: 4px; display: inline-block; font-weight: 600;";
-                if (valueStr === "N/A") return "color: #9ca3af; background-color: #f3f4f6; padding: 4px 8px; border-radius: 4px; display: inline-block; font-style: italic;";
-                return "color: #2563eb; background-color: #eff6ff; padding: 4px 8px; border-radius: 4px; display: inline-block; font-weight: 600;";
-            };
-
-            if (loading) {
-                return React.createElement('div', { style: { padding: '24px' } },
-                    React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '200px', backgroundColor: '#f9fafb', borderRadius: '8px' } },
-                        React.createElement('div', { style: { textAlign: 'center', width: '100%' } },
-                            React.createElement('div', {
-                                style: {
-                                    border: '3px solid #f3f4f6',
-                                    borderTop: '3px solid #2563eb',
-                                    borderRadius: '50%',
-                                    width: '48px',
-                                    height: '48px',
-                                    animation: 'spin 1s linear infinite',
-                                    margin: '0 auto 16px'
-                                }
-                            }),
-                            React.createElement('p', { style: { color: '#6b7280', fontSize: '14px', marginBottom: '12px' } }, 'Loading customer data...'),
-                            React.createElement('details', { style: { textAlign: 'left', padding: '0 20px' } },
-                                React.createElement('summary', { style: { cursor: 'pointer', fontSize: '11px', color: '#9ca3af', textAlign: 'center' } }, 'View loading process'),
-                                React.createElement('div', { style: { marginTop: '8px', padding: '8px', backgroundColor: '#ffffff', borderRadius: '4px', fontSize: '10px', maxHeight: '150px', overflow: 'auto', border: '1px solid #e5e7eb' } },
-                                    debugInfo.map((msg, i) => React.createElement('div', { key: i, style: { padding: '2px 0' } }, msg))
-                                )
-                            ),
-                            React.createElement('style', null, '@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); }}')
-                        )
-                    )
-                );
-            }
-
-            if (error) {
-                return React.createElement('div', { style: { padding: '24px' } },
-                    React.createElement('div', { style: { backgroundColor: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', padding: '16px' } },
-                        React.createElement('h3', { style: { color: '#991b1b', fontWeight: '600', fontSize: '14px', marginBottom: '8px' } }, 'Error Loading Data'),
-                        React.createElement('p', { style: { color: '#dc2626', fontSize: '12px' } }, error)
-                    )
-                );
-            }
-
-            if (!customerData) {
-                return React.createElement('div', { style: { padding: '24px' } },
-                    React.createElement('p', null, 'No data available')
-                );
-            }
-
-            return React.createElement('div', { style: { backgroundColor: '#ffffff', minHeight: '100vh' } },
-                React.createElement('div', {
-                    style: {
-                        background: 'linear-gradient(to right, #2563eb, #1d4ed8)',
-                        color: 'white',
-                        padding: '16px',
-                        position: 'sticky',
-                        top: 0,
-                        zIndex: 10,
-                        boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
-                    }
-                },
-                    React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } },
-                        React.createElement('span', { style: { fontSize: '20px' } }, '👤'),
-                        React.createElement('h2', { style: { fontSize: '18px', fontWeight: '600' } }, 'Account Information')
-                    )
-                ),
-                customerData.default_name && customerData.default_name !== 'Unknown' &&
-                React.createElement('div', {
-                    style: {
-                        margin: '16px',
-                        padding: '16px',
-                        background: 'linear-gradient(to right, #eff6ff, #dbeafe)',
-                        borderRadius: '8px',
-                        border: '1px solid #bfdbfe'
-                    }
-                },
-                    React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '12px' } },
-                        React.createElement('div', {
-                            style: {
-                                width: '48px',
-                                height: '48px',
-                                backgroundColor: '#2563eb',
-                                borderRadius: '50%',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                color: 'white',
-                                fontWeight: 'bold',
-                                fontSize: '18px'
-                            }
-                        }, customerData.default_name.charAt(0)),
-                        React.createElement('div', null,
-                            React.createElement('p', { style: { fontSize: '11px', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em' } }, 'Customer'),
-                            React.createElement('p', { style: { fontSize: '18px', fontWeight: 'bold', color: '#1f2937' } }, customerData.default_name)
-                        )
-                    )
-                ),
-                React.createElement('div', { style: { padding: '0 16px 16px', display: 'flex', flexDirection: 'column', gap: '12px' } },
-                    Object.entries(customerData).map(([key, value]) => {
-                        if (key === 'default_name') return null;
-                        return React.createElement('div', {
-                            key: key,
-                            style: {
-                                backgroundColor: 'white',
-                                border: '1px solid #e5e7eb',
-                                borderRadius: '8px',
-                                padding: '14px'
-                            }
-                        },
-                            React.createElement('p', {
-                                style: {
-                                    fontSize: '11px',
-                                    fontWeight: '500',
-                                    color: '#6b7280',
-                                    textTransform: 'uppercase',
-                                    letterSpacing: '0.05em',
-                                    marginBottom: '6px'
-                                }
-                            }, formatFieldName(key)),
-                            React.createElement('div', { style: { fontSize: '13px' } },
-                                React.createElement('span', { style: getStatusColor(value) }, value)
-                            )
-                        );
-                    })
-                ),
-                React.createElement('div', {
-                    style: {
-                        margin: '16px',
-                        padding: '16px',
-                        backgroundColor: '#f9fafb',
-                        borderRadius: '8px',
-                        border: '1px solid #e5e7eb'
-                    }
-                },
-                    React.createElement('h3', { style: { fontSize: '14px', fontWeight: '600', color: '#374151', marginBottom: '12px' } }, 'Quick Status'),
-                    React.createElement('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' } },
-                        React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } },
-                            React.createElement('div', {
-                                style: {
-                                    width: '8px',
-                                    height: '8px',
-                                    borderRadius: '50%',
-                                    backgroundColor: String(customerData.KYC).toUpperCase() === 'TRUE' ? '#22c55e' : '#d1d5db'
-                                }
-                            }),
-                            React.createElement('span', { style: { fontSize: '12px', color: '#6b7280' } }, 'KYC Verified')
-                        ),
-                        React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } },
-                            React.createElement('div', {
-                                style: {
-                                    width: '8px',
-                                    height: '8px',
-                                    borderRadius: '50%',
-                                    backgroundColor: String(customerData.VIP_Binary).toUpperCase() === 'TRUE' ? '#a855f7' : '#d1d5db'
-                                }
-                            }),
-                            React.createElement('span', { style: { fontSize: '12px', color: '#6b7280' } }, 'VIP Status')
-                        ),
-                        React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } },
-                            React.createElement('div', {
-                                style: {
-                                    width: '8px',
-                                    height: '8px',
-                                    borderRadius: '50%',
-                                    backgroundColor: String(customerData.Pending_WD).toUpperCase() === 'TRUE' ? '#eab308' : '#d1d5db'
-                                }
-                            }),
-                            React.createElement('span', { style: { fontSize: '12px', color: '#6b7280' } }, 'Pending Withdrawal')
-                        ),
-                        React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } },
-                            React.createElement('div', {
-                                style: {
-                                    width: '8px',
-                                    height: '8px',
-                                    borderRadius: '50%',
-                                    backgroundColor: String(customerData.Bonus_active).toUpperCase() === 'TRUE' ? '#3b82f6' : '#d1d5db'
-                                }
-                            }),
-                            React.createElement('span', { style: { fontSize: '12px', color: '#6b7280' } }, 'Active Bonus')
-                        )
-                    )
-                )
-            );
-        };
-
-        const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(React.createElement(AccountWidget));
+        // Load SDK script and initialize
+        const script = document.createElement('script');
+        script.src = 'https://unpkg.com/@livechat/agent-app-sdk@2.3.3/dist/agentapp.min.js';
+        script.onload = initialize;
+        script.onerror = initialize; // Initialize anyway if SDK fails to load
+        document.head.appendChild(script);
     </script>
 </body>
 </html>
