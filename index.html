@@ -4,8 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Account Info Widget</title>
-    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://unpkg.com/@livechat/agent-app-sdk@2.3.3/dist/agentapp.min.js"></script>
     <style>
@@ -47,128 +47,70 @@
                     try {
                         addDebug('Widget initializing...');
                         
-                        // Try multiple initialization methods
-                        let sdk = null;
-                        let customerProfile = null;
-
-                        // Method 1: Try standard SDK init
+                        // Method 1: Try SDK if available
                         if (window.LiveChatAgentSDK) {
                             try {
-                                addDebug('Method 1: Attempting LiveChatAgentSDK.init()');
-                                sdk = await window.LiveChatAgentSDK.init();
-                                addDebug('SDK initialized via Method 1');
-                                
-                                customerProfile = await sdk.getCustomerProfile();
-                                addDebug('Got customer profile from SDK');
+                                addDebug('Attempting SDK initialization');
+                                const sdk = await window.LiveChatAgentSDK.init();
+                                const profile = await sdk.getCustomerProfile();
+                                processCustomerData(profile);
+                                return;
                             } catch (e) {
-                                addDebug(`Method 1 failed: ${e.message}`);
+                                addDebug(`SDK failed: ${e.message}`);
                             }
                         }
 
-                        // Method 2: Listen for postMessage from parent
-                        if (!customerProfile) {
-                            addDebug('Method 2: Setting up postMessage listener');
-                            
-                            window.addEventListener('message', (event) => {
-                                addDebug(`Received message: ${JSON.stringify(event.data).substring(0, 100)}`);
-                                
-                                if (event.data && event.data.customer) {
-                                    addDebug('Customer data received via postMessage');
-                                    processCustomerData(event.data.customer);
-                                }
-                                
-                                if (event.data && event.data.customerProfile) {
-                                    addDebug('Customer profile received via postMessage');
-                                    processCustomerData(event.data.customerProfile);
-                                }
-                            });
-
-                            // Request data from parent
-                            if (window.parent !== window) {
-                                addDebug('Requesting data from parent window');
-                                window.parent.postMessage({ type: 'GET_CUSTOMER_DATA' }, '*');
+                        // Method 2: Listen for postMessage
+                        addDebug('Method 2: Setting up postMessage listener');
+                        window.addEventListener('message', (event) => {
+                            if (event.data && (event.data.customer || event.data.customerProfile)) {
+                                processCustomerData(event.data.customer || event.data.customerProfile);
                             }
+                        });
+
+                        if (window.parent !== window) {
+                            window.parent.postMessage({ type: 'GET_CUSTOMER_DATA' }, '*');
                         }
 
-                        // Method 3: Check URL parameters
-                        const urlParams = new URLSearchParams(window.location.search);
-                        if (urlParams.has('customer')) {
-                            try {
-                                addDebug('Method 3: Found customer in URL params');
-                                const customerFromUrl = JSON.parse(decodeURIComponent(urlParams.get('customer')));
-                                processCustomerData(customerFromUrl);
-                            } catch (e) {
-                                addDebug(`Method 3 failed: ${e.message}`);
+                        // Show test data after 3 seconds
+                        setTimeout(() => {
+                            if (loading) {
+                                addDebug('No data received, using test data');
+                                setCustomerData({
+                                    default_name: "Test Customer",
+                                    Pending_WD: "FALSE",
+                                    KYC: "FALSE",
+                                    VIP_Binary: "TRUE",
+                                    Player_Class: "PVIP",
+                                    Bonus_offer: "27",
+                                    Bonus_active: "FALSE",
+                                    Withdraw_limit_day: "8",
+                                    Withdraw_limit_week: "3358",
+                                    Withdraw_limit_month: "11796"
+                                });
+                                setLoading(false);
                             }
-                        }
-
-                        // If we got profile from SDK, process it
-                        if (customerProfile) {
-                            processCustomerData(customerProfile);
-                        } else {
-                            // Show test data after 3 seconds if no real data
-                            setTimeout(() => {
-                                if (loading) {
-                                    addDebug('No data received, using test data');
-                                    setCustomerData({
-                                        default_name: "Test Customer",
-                                        Pending_WD: "FALSE",
-                                        KYC: "FALSE",
-                                        VIP_Binary: "TRUE",
-                                        Player_Class: "PVIP",
-                                        Bonus_offer: "27",
-                                        Bonus_active: "FALSE",
-                                        Withdraw_limit_day: "8",
-                                        Withdraw_limit_week: "3358",
-                                        Withdraw_limit_month: "11796"
-                                    });
-                                    setLoading(false);
-                                }
-                            }, 3000);
-                        }
+                        }, 3000);
 
                     } catch (err) {
-                        addDebug(`Initialization error: ${err.message}`);
+                        addDebug(`Error: ${err.message}`);
                         setError(err.message);
                         setLoading(false);
                     }
                 };
 
                 const processCustomerData = (profile) => {
-                    addDebug('Processing customer data...');
-                    console.log('Full profile:', profile);
-
                     if (!profile) {
-                        addDebug('Profile is null/undefined');
                         setLoading(false);
                         return;
                     }
 
-                    // Extract data from various possible locations
+                    addDebug('Processing customer data');
                     let data = {};
 
-                    // Check profile.fields (integration data)
-                    if (profile.fields) {
-                        addDebug(`Found ${Object.keys(profile.fields).length} fields`);
-                        data = { ...data, ...profile.fields };
-                    }
+                    if (profile.fields) data = { ...data, ...profile.fields };
+                    if (profile.properties) data = { ...data, ...profile.properties };
 
-                    // Check profile.properties
-                    if (profile.properties) {
-                        addDebug(`Found ${Object.keys(profile.properties).length} properties`);
-                        data = { ...data, ...profile.properties };
-                    }
-
-                    // Check root level properties
-                    Object.keys(profile).forEach(key => {
-                        if (typeof profile[key] === 'string' || typeof profile[key] === 'number') {
-                            data[key] = profile[key];
-                        }
-                    });
-
-                    addDebug(`Total data keys: ${Object.keys(data).length}`);
-
-                    // Map to our expected format
                     const mappedData = {
                         default_name: data.default_name || data.name || profile.name || 'Unknown',
                         Pending_WD: data.Pending_WD || data.default_Pending_WD || 'N/A',
@@ -182,8 +124,6 @@
                         Withdraw_limit_month: data.Withdraw_limit_month || data.default_Withdraw_limit_month || 'N/A'
                     };
 
-                    addDebug('Data mapped successfully');
-                    console.log('Mapped data:', mappedData);
                     setCustomerData(mappedData);
                     setLoading(false);
                 };
@@ -205,11 +145,11 @@
             };
 
             if (loading) {
-                return (
-                    <div style={{padding: '24px'}}>
-                        <div style={{display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '200px', backgroundColor: '#f9fafb', borderRadius: '8px'}}>
-                            <div style={{textAlign: 'center', width: '100%'}}>
-                                <div style={{
+                return React.createElement('div', { style: { padding: '24px' } },
+                    React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '200px', backgroundColor: '#f9fafb', borderRadius: '8px' } },
+                        React.createElement('div', { style: { textAlign: 'center', width: '100%' } },
+                            React.createElement('div', {
+                                style: {
                                     border: '3px solid #f3f4f6',
                                     borderTop: '3px solid #2563eb',
                                     borderRadius: '50%',
@@ -217,46 +157,39 @@
                                     height: '48px',
                                     animation: 'spin 1s linear infinite',
                                     margin: '0 auto 16px'
-                                }}></div>
-                                <p style={{color: '#6b7280', fontSize: '14px', marginBottom: '12px'}}>Loading customer data...</p>
-                                <details style={{textAlign: 'left', padding: '0 20px'}}>
-                                    <summary style={{cursor: 'pointer', fontSize: '11px', color: '#9ca3af', textAlign: 'center'}}>View loading process</summary>
-                                    <div style={{marginTop: '8px', padding: '8px', backgroundColor: '#ffffff', borderRadius: '4px', fontSize: '10px', maxHeight: '150px', overflow: 'auto', border: '1px solid #e5e7eb'}}>
-                                        {debugInfo.map((msg, i) => <div key={i} style={{padding: '2px 0'}}>{msg}</div>)}
-                                    </div>
-                                </details>
-                            </div>
-                            <style>{`@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); }}`}</style>
-                        </div>
-                    </div>
+                                }
+                            }),
+                            React.createElement('p', { style: { color: '#6b7280', fontSize: '14px', marginBottom: '12px' } }, 'Loading customer data...'),
+                            React.createElement('details', { style: { textAlign: 'left', padding: '0 20px' } },
+                                React.createElement('summary', { style: { cursor: 'pointer', fontSize: '11px', color: '#9ca3af', textAlign: 'center' } }, 'View loading process'),
+                                React.createElement('div', { style: { marginTop: '8px', padding: '8px', backgroundColor: '#ffffff', borderRadius: '4px', fontSize: '10px', maxHeight: '150px', overflow: 'auto', border: '1px solid #e5e7eb' } },
+                                    debugInfo.map((msg, i) => React.createElement('div', { key: i, style: { padding: '2px 0' } }, msg))
+                                )
+                            ),
+                            React.createElement('style', null, '@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); }}')
+                        )
+                    )
                 );
             }
 
             if (error) {
-                return (
-                    <div style={{padding: '24px'}}>
-                        <div style={{backgroundColor: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', padding: '16px'}}>
-                            <div style={{marginBottom: '12px'}}>
-                                <div style={{display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px'}}>
-                                    <span style={{fontSize: '20px'}}>⚠</span>
-                                    <h3 style={{color: '#991b1b', fontWeight: '600', fontSize: '14px'}}>Error Loading Data</h3>
-                                </div>
-                                <p style={{color: '#dc2626', fontSize: '12px'}}>{error}</p>
-                            </div>
-                            <details>
-                                <summary style={{cursor: 'pointer', fontSize: '11px', color: '#7f1d1d', padding: '4px 0'}}>Debug Log ({debugInfo.length} entries)</summary>
-                                <div style={{marginTop: '8px', padding: '8px', backgroundColor: '#ffffff', borderRadius: '4px', fontSize: '10px', maxHeight: '200px', overflow: 'auto'}}>
-                                    {debugInfo.map((msg, i) => <div key={i} style={{padding: '2px 0', borderBottom: '1px solid #fee2e2'}}>{msg}</div>)}
-                                </div>
-                            </details>
-                        </div>
-                    </div>
+                return React.createElement('div', { style: { padding: '24px' } },
+                    React.createElement('div', { style: { backgroundColor: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', padding: '16px' } },
+                        React.createElement('h3', { style: { color: '#991b1b', fontWeight: '600', fontSize: '14px', marginBottom: '8px' } }, 'Error Loading Data'),
+                        React.createElement('p', { style: { color: '#dc2626', fontSize: '12px' } }, error)
+                    )
                 );
             }
 
-            return (
-                <div style={{backgroundColor: '#ffffff', minHeight: '100vh'}}>
-                    <div style={{
+            if (!customerData) {
+                return React.createElement('div', { style: { padding: '24px' } },
+                    React.createElement('p', null, 'No data available')
+                );
+            }
+
+            return React.createElement('div', { style: { backgroundColor: '#ffffff', minHeight: '100vh' } },
+                React.createElement('div', {
+                    style: {
                         background: 'linear-gradient(to right, #2563eb, #1d4ed8)',
                         color: 'white',
                         padding: '16px',
@@ -264,135 +197,134 @@
                         top: 0,
                         zIndex: 10,
                         boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
-                    }}>
-                        <div style={{display: 'flex', alignItems: 'center', gap: '8px'}}>
-                            <span style={{fontSize: '20px'}}>👤</span>
-                            <h2 style={{fontSize: '18px', fontWeight: '600'}}>Account Information</h2>
-                        </div>
-                    </div>
-
-                    {customerData.default_name && customerData.default_name !== 'Unknown' && (
-                        <div style={{
-                            margin: '16px',
-                            padding: '16px',
-                            background: 'linear-gradient(to right, #eff6ff, #dbeafe)',
-                            borderRadius: '8px',
-                            border: '1px solid #bfdbfe'
-                        }}>
-                            <div style={{display: 'flex', alignItems: 'center', gap: '12px'}}>
-                                <div style={{
-                                    width: '48px',
-                                    height: '48px',
-                                    backgroundColor: '#2563eb',
-                                    borderRadius: '50%',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    color: 'white',
-                                    fontWeight: 'bold',
-                                    fontSize: '18px'
-                                }}>
-                                    {customerData.default_name.charAt(0)}
-                                </div>
-                                <div>
-                                    <p style={{fontSize: '11px', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em'}}>Customer</p>
-                                    <p style={{fontSize: '18px', fontWeight: 'bold', color: '#1f2937'}}>{customerData.default_name}</p>
-                                </div>
-                            </div>
-                        </div>
-                    )}
-
-                    <div style={{padding: '0 16px 16px', display: 'flex', flexDirection: 'column', gap: '12px'}}>
-                        {Object.entries(customerData).map(([key, value]) => {
-                            if (key === 'default_name') return null;
-                            
-                            return (
-                                <div key={key} style={{
-                                    backgroundColor: 'white',
-                                    border: '1px solid #e5e7eb',
-                                    borderRadius: '8px',
-                                    padding: '14px',
-                                    transition: 'box-shadow 0.2s'
-                                }}
-                                onMouseEnter={(e) => e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1)'}
-                                onMouseLeave={(e) => e.currentTarget.style.boxShadow = 'none'}>
-                                    <p style={{
-                                        fontSize: '11px',
-                                        fontWeight: '500',
-                                        color: '#6b7280',
-                                        textTransform: 'uppercase',
-                                        letterSpacing: '0.05em',
-                                        marginBottom: '6px'
-                                    }}>
-                                        {formatFieldName(key)}
-                                    </p>
-                                    <div style={{fontSize: '13px'}}>
-                                        <span style={getStatusColor(value)}>{value}</span>
-                                    </div>
-                                </div>
-                            );
-                        })}
-                    </div>
-
-                    <div style={{
+                    }
+                },
+                    React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } },
+                        React.createElement('span', { style: { fontSize: '20px' } }, '👤'),
+                        React.createElement('h2', { style: { fontSize: '18px', fontWeight: '600' } }, 'Account Information')
+                    )
+                ),
+                customerData.default_name && customerData.default_name !== 'Unknown' &&
+                React.createElement('div', {
+                    style: {
+                        margin: '16px',
+                        padding: '16px',
+                        background: 'linear-gradient(to right, #eff6ff, #dbeafe)',
+                        borderRadius: '8px',
+                        border: '1px solid #bfdbfe'
+                    }
+                },
+                    React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '12px' } },
+                        React.createElement('div', {
+                            style: {
+                                width: '48px',
+                                height: '48px',
+                                backgroundColor: '#2563eb',
+                                borderRadius: '50%',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                color: 'white',
+                                fontWeight: 'bold',
+                                fontSize: '18px'
+                            }
+                        }, customerData.default_name.charAt(0)),
+                        React.createElement('div', null,
+                            React.createElement('p', { style: { fontSize: '11px', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em' } }, 'Customer'),
+                            React.createElement('p', { style: { fontSize: '18px', fontWeight: 'bold', color: '#1f2937' } }, customerData.default_name)
+                        )
+                    )
+                ),
+                React.createElement('div', { style: { padding: '0 16px 16px', display: 'flex', flexDirection: 'column', gap: '12px' } },
+                    Object.entries(customerData).map(([key, value]) => {
+                        if (key === 'default_name') return null;
+                        return React.createElement('div', {
+                            key: key,
+                            style: {
+                                backgroundColor: 'white',
+                                border: '1px solid #e5e7eb',
+                                borderRadius: '8px',
+                                padding: '14px'
+                            }
+                        },
+                            React.createElement('p', {
+                                style: {
+                                    fontSize: '11px',
+                                    fontWeight: '500',
+                                    color: '#6b7280',
+                                    textTransform: 'uppercase',
+                                    letterSpacing: '0.05em',
+                                    marginBottom: '6px'
+                                }
+                            }, formatFieldName(key)),
+                            React.createElement('div', { style: { fontSize: '13px' } },
+                                React.createElement('span', { style: getStatusColor(value) }, value)
+                            )
+                        );
+                    })
+                ),
+                React.createElement('div', {
+                    style: {
                         margin: '16px',
                         padding: '16px',
                         backgroundColor: '#f9fafb',
                         borderRadius: '8px',
                         border: '1px solid #e5e7eb'
-                    }}>
-                        <h3 style={{fontSize: '14px', fontWeight: '600', color: '#374151', marginBottom: '12px'}}>Quick Status</h3>
-                        <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px'}}>
-                            <div style={{display: 'flex', alignItems: 'center', gap: '8px'}}>
-                                <div style={{
+                    }
+                },
+                    React.createElement('h3', { style: { fontSize: '14px', fontWeight: '600', color: '#374151', marginBottom: '12px' } }, 'Quick Status'),
+                    React.createElement('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' } },
+                        React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } },
+                            React.createElement('div', {
+                                style: {
                                     width: '8px',
                                     height: '8px',
                                     borderRadius: '50%',
                                     backgroundColor: String(customerData.KYC).toUpperCase() === 'TRUE' ? '#22c55e' : '#d1d5db'
-                                }}></div>
-                                <span style={{fontSize: '12px', color: '#6b7280'}}>KYC Verified</span>
-                            </div>
-                            <div style={{display: 'flex', alignItems: 'center', gap: '8px'}}>
-                                <div style={{
+                                }
+                            }),
+                            React.createElement('span', { style: { fontSize: '12px', color: '#6b7280' } }, 'KYC Verified')
+                        ),
+                        React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } },
+                            React.createElement('div', {
+                                style: {
                                     width: '8px',
                                     height: '8px',
                                     borderRadius: '50%',
                                     backgroundColor: String(customerData.VIP_Binary).toUpperCase() === 'TRUE' ? '#a855f7' : '#d1d5db'
-                                }}></div>
-                                <span style={{fontSize: '12px', color: '#6b7280'}}>VIP Status</span>
-                            </div>
-                            <div style={{display: 'flex', alignItems: 'center', gap: '8px'}}>
-                                <div style={{
+                                }
+                            }),
+                            React.createElement('span', { style: { fontSize: '12px', color: '#6b7280' } }, 'VIP Status')
+                        ),
+                        React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } },
+                            React.createElement('div', {
+                                style: {
                                     width: '8px',
                                     height: '8px',
                                     borderRadius: '50%',
                                     backgroundColor: String(customerData.Pending_WD).toUpperCase() === 'TRUE' ? '#eab308' : '#d1d5db'
-                                }}></div>
-                                <span style={{fontSize: '12px', color: '#6b7280'}}>Pending Withdrawal</span>
-                            </div>
-                            <div style={{display: 'flex', alignItems: 'center', gap: '8px'}}>
-                                <div style={{
+                                }
+                            }),
+                            React.createElement('span', { style: { fontSize: '12px', color: '#6b7280' } }, 'Pending Withdrawal')
+                        ),
+                        React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } },
+                            React.createElement('div', {
+                                style: {
                                     width: '8px',
                                     height: '8px',
                                     borderRadius: '50%',
                                     backgroundColor: String(customerData.Bonus_active).toUpperCase() === 'TRUE' ? '#3b82f6' : '#d1d5db'
-                                }}></div>
-                                <span style={{fontSize: '12px', color: '#6b7280'}}>Active Bonus</span>
-                            </div>
-                        </div>
-                    </div>
-
-                    <details style={{margin: '16px', fontSize: '11px', color: '#6b7280'}}>
-                        <summary style={{cursor: 'pointer', padding: '8px', backgroundColor: '#f3f4f6', borderRadius: '4px'}}>Debug Info ({debugInfo.length} log entries)</summary>
-                        <div style={{marginTop: '8px', padding: '8px', backgroundColor: '#1f2937', color: '#e5e7eb', borderRadius: '4px', fontSize: '10px', maxHeight: '200px', overflow: 'auto'}}>
-                            {debugInfo.map((msg, i) => <div key={i} style={{padding: '2px 0'}}>{msg}</div>)}
-                        </div>
-                    </details>
-                </div>
+                                }
+                            }),
+                            React.createElement('span', { style: { fontSize: '12px', color: '#6b7280' } }, 'Active Bonus')
+                        )
+                    )
+                )
             );
         };
 
-        ReactDOM.render(<AccountWidget />, document.getElementById('root'));
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(React.createElement(AccountWidget));
     </script>
 </body>
 </html>
