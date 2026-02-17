@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Account Info Widget</title>
+    <script src="https://unpkg.com/@livechat/agent-app-sdk@2.3.3/dist/agentapp.min.js"></script>
     <style>
         * {
             margin: 0;
@@ -48,7 +49,7 @@
             border-radius: 50%;
             display: flex;
             align-items: center;
-            justify-content: center;
+            justif-content: center;
             color: white;
             font-weight: bold;
             font-size: 18px;
@@ -151,6 +152,22 @@
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
         }
+        .error-box {
+            margin: 24px;
+            padding: 16px;
+            background-color: #fef2f2;
+            border: 1px solid #fecaca;
+            border-radius: 8px;
+        }
+        .debug-section {
+            margin: 16px;
+            padding: 12px;
+            background-color: #f3f4f6;
+            border-radius: 4px;
+            font-size: 10px;
+            max-height: 200px;
+            overflow: auto;
+        }
     </style>
 </head>
 <body>
@@ -158,13 +175,22 @@
         <div class="loading-container">
             <div style="text-align: center;">
                 <div class="spinner"></div>
-                <p style="color: #6b7280; font-size: 14px;">Loading customer data...</p>
+                <p style="color: #6b7280; font-size: 14px;">Initializing widget...</p>
             </div>
         </div>
     </div>
 
     <script>
         let customerData = null;
+        let debugLogs = [];
+        let sdk = null;
+
+        function log(message) {
+            const timestamp = new Date().toLocaleTimeString();
+            const logMessage = `${timestamp}: ${message}`;
+            debugLogs.push(logMessage);
+            console.log(logMessage);
+        }
 
         function formatFieldName(key) {
             return key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
@@ -178,10 +204,27 @@
             return "status-default";
         }
 
+        function showError(message) {
+            const root = document.getElementById('root');
+            root.innerHTML = `
+                <div class="error-box">
+                    <h3 style="color: #991b1b; font-weight: 600; font-size: 14px; margin-bottom: 8px;">Error</h3>
+                    <p style="color: #dc2626; font-size: 12px; margin-bottom: 12px;">${message}</p>
+                    <details>
+                        <summary style="cursor: pointer; font-size: 11px; color: #7f1d1d;">View Debug Log</summary>
+                        <div class="debug-section">
+                            ${debugLogs.map(log => `<div>${log}</div>`).join('')}
+                        </div>
+                    </details>
+                </div>
+            `;
+        }
+
         function renderWidget() {
             const root = document.getElementById('root');
             
             if (!customerData) {
+                showError('No customer data available');
                 return;
             }
 
@@ -243,95 +286,95 @@
                         </div>
                     </div>
                 </div>
+                <details style="margin: 16px;">
+                    <summary style="cursor: pointer; font-size: 11px; color: #6b7280; padding: 8px; background: #f3f4f6; border-radius: 4px;">Debug Log</summary>
+                    <div class="debug-section">
+                        ${debugLogs.map(logMsg => `<div>${logMsg}</div>`).join('')}
+                    </div>
+                </details>
             `;
 
             root.innerHTML = html;
         }
 
-        async function initialize() {
-            console.log('Widget initializing...');
-
-            // Try to get SDK data
-            if (window.LiveChatAgentSDK) {
-                try {
-                    console.log('Attempting SDK initialization');
-                    const sdk = await window.LiveChatAgentSDK.init();
-                    const profile = await sdk.getCustomerProfile();
-                    
-                    if (profile && profile.fields) {
-                        customerData = {
-                            default_name: profile.fields.default_name || profile.name || 'Unknown',
-                            Pending_WD: profile.fields.Pending_WD || profile.fields.default_Pending_WD || 'N/A',
-                            KYC: profile.fields.KYC || profile.fields.default_KYC || 'N/A',
-                            VIP_Binary: profile.fields.VIP_Binary || profile.fields.default_VIP_Binary || 'N/A',
-                            Player_Class: profile.fields.Player_Class || profile.fields.default_Player_Class || 'N/A',
-                            Bonus_offer: profile.fields.Bonus_offer || profile.fields.default_Bonus_offer || 'N/A',
-                            Bonus_active: profile.fields.Bonus_active || profile.fields.default_Bonus_active || 'N/A',
-                            Withdraw_limit_day: profile.fields.Withdraw_limit_day || profile.fields.default_Withdraw_limit_day || 'N/A',
-                            Withdraw_limit_week: profile.fields.Withdraw_limit_week || profile.fields.default_Withdraw_limit_week || 'N/A',
-                            Withdraw_limit_month: profile.fields.Withdraw_limit_month || profile.fields.default_Withdraw_limit_month || 'N/A'
-                        };
-                        renderWidget();
-                        return;
-                    }
-                } catch (e) {
-                    console.log('SDK failed:', e.message);
-                }
+        function extractCustomerData(customer) {
+            log('Extracting customer data...');
+            log(`Customer object keys: ${Object.keys(customer).join(', ')}`);
+            
+            // Try different possible locations for the data
+            let fields = {};
+            
+            if (customer.fields) {
+                log(`Found ${Object.keys(customer.fields).length} fields`);
+                fields = customer.fields;
+            } else if (customer.properties) {
+                log(`Found ${Object.keys(customer.properties).length} properties`);
+                fields = customer.properties;
+            } else {
+                log('No fields or properties found, using customer object directly');
+                fields = customer;
             }
 
-            // Listen for postMessage
-            window.addEventListener('message', (event) => {
-                if (event.data && (event.data.customer || event.data.customerProfile)) {
-                    const profile = event.data.customer || event.data.customerProfile;
-                    console.log('Received data via postMessage', profile);
-                    processCustomerData(profile);
-                }
-            });
+            log(`Available field keys: ${Object.keys(fields).join(', ')}`);
 
-            // Show test data after 3 seconds
-            setTimeout(() => {
-                if (!customerData) {
-                    console.log('No data received, using test data');
-                    customerData = {
-                        default_name: "Test Customer",
-                        Pending_WD: "FALSE",
-                        KYC: "FALSE",
-                        VIP_Binary: "TRUE",
-                        Player_Class: "PVIP",
-                        Bonus_offer: "27",
-                        Bonus_active: "FALSE",
-                        Withdraw_limit_day: "8",
-                        Withdraw_limit_week: "3358",
-                        Withdraw_limit_month: "11796"
-                    };
-                    renderWidget();
-                }
-            }, 3000);
-        }
-
-        function processCustomerData(profile) {
-            const data = profile.fields || profile.properties || profile;
-            customerData = {
-                default_name: data.default_name || data.name || profile.name || 'Unknown',
-                Pending_WD: data.Pending_WD || data.default_Pending_WD || 'N/A',
-                KYC: data.KYC || data.default_KYC || 'N/A',
-                VIP_Binary: data.VIP_Binary || data.default_VIP_Binary || 'N/A',
-                Player_Class: data.Player_Class || data.default_Player_Class || 'N/A',
-                Bonus_offer: data.Bonus_offer || data.default_Bonus_offer || 'N/A',
-                Bonus_active: data.Bonus_active || data.default_Bonus_active || 'N/A',
-                Withdraw_limit_day: data.Withdraw_limit_day || data.default_Withdraw_limit_day || 'N/A',
-                Withdraw_limit_week: data.Withdraw_limit_week || data.default_Withdraw_limit_week || 'N/A',
-                Withdraw_limit_month: data.Withdraw_limit_month || data.default_Withdraw_limit_month || 'N/A'
+            return {
+                default_name: fields.default_name || fields.name || customer.name || 'Unknown',
+                Pending_WD: fields.Pending_WD || fields.default_Pending_WD || fields['default_Pending_WD'] || 'N/A',
+                KYC: fields.KYC || fields.default_KYC || fields['default_KYC'] || 'N/A',
+                VIP_Binary: fields.VIP_Binary || fields.default_VIP_Binary || fields['default_VIP_Binary'] || 'N/A',
+                Player_Class: fields.Player_Class || fields.default_Player_Class || fields['default_Player_Class'] || 'N/A',
+                Bonus_offer: fields.Bonus_offer || fields.default_Bonus_offer || fields['default_Bonus_offer'] || 'N/A',
+                Bonus_active: fields.Bonus_active || fields.default_Bonus_active || fields['default_Bonus_active'] || 'N/A',
+                Withdraw_limit_day: fields.Withdraw_limit_day || fields.default_Withdraw_limit_day || fields['default_Withdraw_limit_day'] || 'N/A',
+                Withdraw_limit_week: fields.Withdraw_limit_week || fields.default_Withdraw_limit_week || fields['default_Withdraw_limit_week'] || 'N/A',
+                Withdraw_limit_month: fields.Withdraw_limit_month || fields.default_Withdraw_limit_month || fields['default_Withdraw_limit_month'] || 'N/A'
             };
-            renderWidget();
         }
 
-        // Load SDK script and initialize
-        const script = document.createElement('script');
-        script.src = 'https://unpkg.com/@livechat/agent-app-sdk@2.3.3/dist/agentapp.min.js';
-        script.onload = initialize;
-        script.onerror = initialize; // Initialize anyway if SDK fails to load
-        document.head.appendChild(script);
+        async function initialize() {
+            try {
+                log('Starting initialization...');
+                log(`LiveChatAgentSDK available: ${!!window.LiveChatAgentSDK}`);
+
+                if (!window.LiveChatAgentSDK) {
+                    throw new Error('LiveChat Agent SDK not found');
+                }
+
+                log('Initializing SDK...');
+                sdk = await window.LiveChatAgentSDK.init();
+                log('SDK initialized successfully');
+
+                // Listen for customer profile changes
+                sdk.on('customer_profile', (customer) => {
+                    log('Customer profile event received');
+                    log(`Customer data: ${JSON.stringify(customer).substring(0, 200)}...`);
+                    customerData = extractCustomerData(customer);
+                    renderWidget();
+                });
+
+                // Get initial customer profile
+                log('Fetching initial customer profile...');
+                const customer = await sdk.getCustomerProfile();
+                log('Customer profile received');
+                log(`Customer ID: ${customer?.id || 'N/A'}`);
+                log(`Customer name: ${customer?.name || 'N/A'}`);
+                
+                customerData = extractCustomerData(customer);
+                renderWidget();
+
+            } catch (error) {
+                log(`Error: ${error.message}`);
+                log(`Error stack: ${error.stack}`);
+                showError(`Failed to initialize: ${error.message}`);
+            }
+        }
+
+        // Wait for DOM and SDK to be ready
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', initialize);
+        } else {
+            initialize();
+        }
     </script>
 </body>
 </html>
