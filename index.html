@@ -331,13 +331,30 @@
             };
         }
 
+        async function waitForSDK(maxAttempts = 50) {
+            log('Waiting for SDK to load...');
+            for (let i = 0; i < maxAttempts; i++) {
+                if (window.LiveChatAgentSDK) {
+                    log(`SDK found after ${i + 1} attempts`);
+                    return true;
+                }
+                await new Promise(resolve => setTimeout(resolve, 100));
+                if (i % 10 === 9) {
+                    log(`Still waiting... attempt ${i + 1}/${maxAttempts}`);
+                }
+            }
+            return false;
+        }
+
         async function initialize() {
             try {
                 log('Starting initialization...');
                 log(`LiveChatAgentSDK available: ${!!window.LiveChatAgentSDK}`);
 
-                if (!window.LiveChatAgentSDK) {
-                    throw new Error('LiveChat Agent SDK not found');
+                const sdkAvailable = await waitForSDK();
+                
+                if (!sdkAvailable) {
+                    throw new Error('LiveChat Agent SDK not found after 5 seconds');
                 }
 
                 log('Initializing SDK...');
